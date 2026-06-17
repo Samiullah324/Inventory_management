@@ -8,20 +8,33 @@ from pathlib import Path
 
 from decouple import config
 from django.core.exceptions import ImproperlyConfigured
+from django.core.management.utils import get_random_secret_key
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 DEBUG = config('DEBUG', default=False, cast=bool)
+RUNNING_TESTS = 'test' in sys.argv
+
 SECRET_KEY = config('SECRET_KEY', default=None)
 if not SECRET_KEY:
-    if DEBUG:
-        SECRET_KEY = 'django-insecure-dev-key-change-in-production'
-    elif 'test' in sys.argv:
-        SECRET_KEY = 'django-insecure-test-key'
+    if RUNNING_TESTS:
+        SECRET_KEY = get_random_secret_key()
     else:
-        raise ImproperlyConfigured('SECRET_KEY must be set')
+        raise ImproperlyConfigured(
+            'SECRET_KEY environment variable is required. '
+            'Set SECRET_KEY in your environment or .env file.'
+        )
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
+_allowed_hosts_raw = config('ALLOWED_HOSTS', default='')
+if _allowed_hosts_raw:
+    ALLOWED_HOSTS = [host.strip() for host in _allowed_hosts_raw.split(',') if host.strip()]
+elif DEBUG or RUNNING_TESTS:
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'testserver']
+else:
+    raise ImproperlyConfigured(
+        'ALLOWED_HOSTS must be set when DEBUG=False. '
+        'Provide a comma-separated list of allowed hostnames.'
+    )
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -30,13 +43,16 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',
     'rest_framework',
+    'rest_framework_simplejwt.token_blacklist',
     'drf_spectacular',
     'inventory',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -87,6 +103,27 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+if not DEBUG:
+    CSRF_COOKIE_SECURE = True
+    CSRF_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+
+_cors_origins_raw = config('CORS_ALLOWED_ORIGINS', default='')
+if _cors_origins_raw:
+    CORS_ALLOWED_ORIGINS = [
+        origin.strip() for origin in _cors_origins_raw.split(',') if origin.strip()
+    ]
+elif DEBUG:
+    CORS_ALLOWED_ORIGINS = [
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+    ]
+else:
+    CORS_ALLOWED_ORIGINS = []
+
+CORS_ALLOW_CREDENTIALS = True
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'inventory.authentication.CookieJWTAuthentication',
@@ -98,6 +135,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_THROTTLE_RATES': {
+        'auth_login': '5/min',
         'token_refresh': '10/min',
     },
 }
@@ -105,6 +143,8 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
 }
 
 SPECTACULAR_SETTINGS = {

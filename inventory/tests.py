@@ -1,5 +1,4 @@
 from decimal import Decimal
-from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -8,7 +7,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from inventory.auth_views import RefreshRateThrottle
+from inventory.auth_views import LoginRateThrottle, RefreshRateThrottle
 from inventory.models import Category, InventoryTransaction, Product
 from inventory.services import get_stock_status
 
@@ -366,6 +365,7 @@ class TransactionFilterAPITests(AuthenticatedAPITestCase):
 
 class SecurityAPITests(APITestCase):
     def setUp(self):
+        cache.clear()
         User.objects.create_superuser(username='admin', password='admin123')
 
     def test_csrf_token_endpoint_returns_token(self):
@@ -384,30 +384,116 @@ class SecurityAPITests(APITestCase):
         )
         refresh_cookie = login.cookies['inventory_refresh'].value
 
-        with patch.object(RefreshRateThrottle, 'rate', '1/min'):
-            cache.clear()
-            first = self.client.post(
+        for _ in range(10):
+            response = self.client.post(
                 reverse('token_refresh'),
                 {},
                 format='json',
                 HTTP_X_CSRFTOKEN=csrf,
                 HTTP_COOKIE=f'inventory_refresh={refresh_cookie}; csrftoken={csrf}',
             )
-            self.assertEqual(first.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            refresh_cookie = response.cookies['inventory_refresh'].value
 
-            second = self.client.post(
-                reverse('token_refresh'),
-                {},
-                format='json',
-                HTTP_X_CSRFTOKEN=csrf,
-                HTTP_COOKIE=f'inventory_refresh={refresh_cookie}; csrftoken={csrf}',
-            )
-            self.assertEqual(second.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        throttled = self.client.post(
+            reverse('token_refresh'),
+            {},
+            format='json',
+            HTTP_X_CSRFTOKEN=csrf,
+            HTTP_COOKIE=f'inventory_refresh={refresh_cookie}; csrftoken={csrf}',
+        )
+        self.assertEqual(throttled.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        cache.clear()
 
     def test_refresh_view_declares_rate_limiting(self):
         from inventory.auth_views import CookieTokenRefreshView
 
         self.assertIn(RefreshRateThrottle, CookieTokenRefreshView.throttle_classes)
+
+    def test_login_endpoint_is_rate_limited(self):
+        cache.clear()
+        csrf = self.client.get('/api/auth/csrf/').data['csrfToken']
+
+        for _ in range(5):
+            response = self.client.post(
+                reverse('token_obtain_pair'),
+                {'username': 'admin', 'password': 'wrong-password'},
+                format='json',
+                HTTP_X_CSRFTOKEN=csrf,
+            )
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        throttled = self.client.post(
+            reverse('token_obtain_pair'),
+            {'username': 'admin', 'password': 'wrong-password'},
+            format='json',
+            HTTP_X_CSRFTOKEN=csrf,
+        )
+        self.assertEqual(throttled.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        cache.clear()
+
+    def test_login_view_declares_rate_limiting(self):
+        from inventory.auth_views import CookieTokenObtainPairView
+
+        self.assertIn(LoginRateThrottle, CookieTokenObtainPairView.throttle_classes)
+
+    def test_logout_blacklists_refresh_token(self):
+        csrf = self.client.get('/api/auth/csrf/').data['csrfToken']
+        login = self.client.post(
+            reverse('token_obtain_pair'),
+            {'username': 'admin', 'password': 'admin123'},
+            format='json',
+            HTTP_X_CSRFTOKEN=csrf,
+        )
+        refresh_cookie = login.cookies['inventory_refresh'].value
+
+        logout = self.client.post(
+            reverse('logout'),
+            {},
+            format='json',
+            HTTP_X_CSRFTOKEN=csrf,
+            HTTP_COOKIE=f'inventory_refresh={refresh_cookie}; csrftoken={csrf}',
+        )
+        self.assertEqual(logout.status_code, status.HTTP_200_OK)
+
+        refresh = self.client.post(
+            reverse('token_refresh'),
+            {},
+            format='json',
+            HTTP_X_CSRFTOKEN=csrf,
+            HTTP_COOKIE=f'inventory_refresh={refresh_cookie}; csrftoken={csrf}',
+        )
+        self.assertEqual(refresh.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_refresh_rotation_blacklists_previous_refresh_token(self):
+        csrf = self.client.get('/api/auth/csrf/').data['csrfToken']
+        login = self.client.post(
+            reverse('token_obtain_pair'),
+            {'username': 'admin', 'password': 'admin123'},
+            format='json',
+            HTTP_X_CSRFTOKEN=csrf,
+        )
+        old_refresh_cookie = login.cookies['inventory_refresh'].value
+
+        first_refresh = self.client.post(
+            reverse('token_refresh'),
+            {},
+            format='json',
+            HTTP_X_CSRFTOKEN=csrf,
+            HTTP_COOKIE=f'inventory_refresh={old_refresh_cookie}; csrftoken={csrf}',
+        )
+        self.assertEqual(first_refresh.status_code, status.HTTP_200_OK)
+        new_refresh_cookie = first_refresh.cookies['inventory_refresh'].value
+        self.assertNotEqual(old_refresh_cookie, new_refresh_cookie)
+
+        stale_refresh = self.client.post(
+            reverse('token_refresh'),
+            {},
+            format='json',
+            HTTP_X_CSRFTOKEN=csrf,
+            HTTP_COOKIE=f'inventory_refresh={old_refresh_cookie}; csrftoken={csrf}',
+        )
+        self.assertEqual(stale_refresh.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
 class IntegrationFlowTests(AuthenticatedAPITestCase):

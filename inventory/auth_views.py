@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 ACCESS_COOKIE = 'inventory_access'
@@ -43,7 +44,11 @@ def clear_auth_cookies(response):
 
 
 class RefreshRateThrottle(AnonRateThrottle):
-    rate = '10/min'
+    scope = 'token_refresh'
+
+
+class LoginRateThrottle(AnonRateThrottle):
+    scope = 'auth_login'
 
 
 @method_decorator(ensure_csrf_cookie, name='dispatch')
@@ -57,6 +62,7 @@ class CsrfTokenView(APIView):
 @method_decorator(csrf_protect, name='dispatch')
 class CookieTokenObtainPairView(TokenObtainPairView):
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
@@ -103,6 +109,13 @@ class LogoutView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        refresh = request.COOKIES.get(REFRESH_COOKIE) or request.data.get('refresh')
+        if refresh:
+            try:
+                RefreshToken(refresh).blacklist()
+            except TokenError:
+                pass
+
         response = Response({'detail': 'Logged out'})
         clear_auth_cookies(response)
         return response
