@@ -54,6 +54,7 @@ describe('api client integration', () => {
   it('notifies listeners when the session cannot be refreshed', async () => {
     const expired = vi.fn();
     const unsubscribe = onSessionExpired(expired);
+    let refreshCalls = 0;
 
     vi.stubGlobal(
       'fetch',
@@ -62,6 +63,7 @@ describe('api client integration', () => {
           return jsonResponse({ csrfToken: 'csrf-token' });
         }
         if (String(url).includes('/api/auth/token/refresh/')) {
+          refreshCalls += 1;
           return jsonResponse({ detail: 'Invalid token' }, 401);
         }
         return jsonResponse({ detail: 'Unauthorized' }, 401);
@@ -71,7 +73,36 @@ describe('api client integration', () => {
     await fetchCsrfToken();
     await expect(apiRequest('/api/dashboard/')).rejects.toThrow('Session expired');
     expect(expired).toHaveBeenCalledTimes(1);
+    expect(refreshCalls).toBe(1);
     unsubscribe();
+  });
+
+  it('does not loop refresh when the retried request still returns 401', async () => {
+    let refreshCalls = 0;
+    let productCalls = 0;
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url) => {
+        if (String(url).includes('/api/auth/csrf/')) {
+          return jsonResponse({ csrfToken: 'csrf-token' });
+        }
+        if (String(url).includes('/api/auth/token/refresh/')) {
+          refreshCalls += 1;
+          return jsonResponse({ detail: 'Token refreshed' });
+        }
+        if (String(url).includes('/api/products/')) {
+          productCalls += 1;
+          return jsonResponse({ detail: 'Unauthorized' }, 401);
+        }
+        return jsonResponse({}, 404);
+      }),
+    );
+
+    await fetchCsrfToken();
+    await expect(apiRequest('/api/products/')).rejects.toThrow('Session expired');
+    expect(refreshCalls).toBe(1);
+    expect(productCalls).toBe(2);
   });
 
   it('surfaces network failures with a user-friendly message', async () => {

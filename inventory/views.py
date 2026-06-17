@@ -30,6 +30,10 @@ class CategoryViewSet(AdminOnlyViewSet):
     serializer_class = CategorySerializer
 
     def perform_destroy(self, instance):
+        if instance.products.exists():
+            raise ValidationError(
+                {'detail': 'Cannot delete a category that still has products assigned.'}
+            )
         try:
             instance.delete()
         except ProtectedError as exc:

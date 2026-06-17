@@ -4,10 +4,10 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import override_settings
+from django.test import TransactionTestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from inventory.auth_views import LoginRateThrottle, RefreshRateThrottle
@@ -509,6 +509,62 @@ class SetupAdminCommandTests(APITestCase):
     def test_setup_admin_allows_default_password_in_debug(self):
         call_command('setup_admin', verbosity=0)
         self.assertTrue(User.objects.filter(username='admin', is_superuser=True).exists())
+
+
+class ConcurrentStockTests(TransactionTestCase):
+    """Verifies stock cannot go negative under back-to-back writes (row-locked).
+
+    True parallel concurrency requires PostgreSQL/MySQL; SQLite serializes writers.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username='admin',
+            email='admin@example.com',
+            password='admin123',
+        )
+        self.category = Category.objects.create(name='Concurrent', description='Load test')
+        self.product = Product.objects.create(
+            name='Widget',
+            sku='CON-001',
+            category=self.category,
+            unit_price=Decimal('10.00'),
+        )
+        self.auth = auth_headers(self.admin)
+        client = APIClient()
+        client.credentials(**self.auth)
+        response = client.post(
+            '/api/transactions/',
+            {
+                'product': self.product.id,
+                'transaction_type': InventoryTransaction.TransactionType.IN,
+                'quantity': 10,
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def _post_out(self, quantity):
+        client = APIClient()
+        client.credentials(**self.auth)
+        return client.post(
+            '/api/transactions/',
+            {
+                'product': self.product.id,
+                'transaction_type': InventoryTransaction.TransactionType.OUT,
+                'quantity': quantity,
+            },
+            format='json',
+        )
+
+    def test_back_to_back_out_transactions_prevent_overselling(self):
+        first = self._post_out(8)
+        second = self._post_out(8)
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 2)
 
 
 class IntegrationFlowTests(AuthenticatedAPITestCase):

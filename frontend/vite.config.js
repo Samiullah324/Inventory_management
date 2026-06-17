@@ -1,15 +1,23 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+/**
+ * Build a Content-Security-Policy string.
+ * - Production: strict policy with 'strict-dynamic' for module scripts; no 'unsafe-inline'.
+ * - Development: allows Vite HMR websocket origins; 'unsafe-inline' only for dev script injection.
+ */
 function buildCsp(isDev) {
   const devOrigins = 'http://localhost:5173 http://127.0.0.1:5173';
   const devWs = 'ws://localhost:5173 ws://127.0.0.1:5173';
+  const scriptSrc = isDev
+    ? "'self' 'unsafe-inline'"
+    : "'self' 'strict-dynamic'";
   const styleSrc = isDev ? `'self' ${devOrigins}` : "'self'";
   const connectSrc = isDev ? `'self' ${devOrigins} ${devWs}` : "'self'";
 
   return [
     "default-src 'self'",
-    "script-src 'self'",
+    `script-src ${scriptSrc}`,
     `style-src ${styleSrc}`,
     "img-src 'self'",
     `connect-src ${connectSrc}`,

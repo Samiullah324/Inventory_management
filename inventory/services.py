@@ -9,6 +9,10 @@ class StockError(serializers.ValidationError):
     pass
 
 
+def _lock_product(product):
+    return Product.objects.select_for_update().get(pk=product.pk)
+
+
 def _stock_after_transaction(current_stock, transaction_type, quantity):
     if transaction_type == InventoryTransaction.TransactionType.IN:
         return current_stock + quantity
@@ -98,3 +102,38 @@ def validate_transaction_change(
     )
     transactions.sort(key=lambda txn: (txn.timestamp, txn.pk or 0))
     _replay_transactions(product, transactions)
+
+
+@transaction.atomic
+def create_inventory_transaction(validated_data):
+    product = _lock_product(validated_data['product'])
+    validate_transaction_change(
+        product,
+        validated_data['transaction_type'],
+        validated_data['quantity'],
+    )
+    instance = InventoryTransaction.objects.create(
+        product=product,
+        transaction_type=validated_data['transaction_type'],
+        quantity=validated_data['quantity'],
+        notes=validated_data.get('notes', ''),
+    )
+    sync_product_stock(product)
+    return instance
+
+
+@transaction.atomic
+def update_inventory_transaction(instance, validated_data):
+    product = _lock_product(instance.product)
+    for attr, value in validated_data.items():
+        setattr(instance, attr, value)
+    validate_transaction_change(
+        product,
+        instance.transaction_type,
+        instance.quantity,
+        exclude_transaction_id=instance.pk,
+        timestamp=instance.timestamp,
+    )
+    instance.save()
+    sync_product_stock(product)
+    return instance

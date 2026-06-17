@@ -5,35 +5,39 @@ WARNING: DEBUG must be False in production. When DEBUG=True, permissive dev defa
 for ALLOWED_HOSTS and CORS_ALLOWED_ORIGINS are applied.
 """
 
-import sys
 from datetime import timedelta
 from pathlib import Path
 
-from decouple import config
+from decouple import UndefinedValueError, config
 from django.core.exceptions import ImproperlyConfigured
-from django.core.management.utils import get_random_secret_key
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 DEBUG = config('DEBUG', default=False, cast=bool)
-# Only True when invoked via `manage.py test` (not user-controlled env/config).
-RUNNING_TESTS = len(sys.argv) > 1 and sys.argv[1] == 'test'
 
-if RUNNING_TESTS:
-    SECRET_KEY = config('SECRET_KEY', default=get_random_secret_key())
-else:
-    SECRET_KEY = config('SECRET_KEY', default=None)
-    if not SECRET_KEY:
-        raise ImproperlyConfigured(
-            'SECRET_KEY environment variable is required. '
-            'Set SECRET_KEY in your environment or .env file.'
-        )
+try:
+    SECRET_KEY = config('SECRET_KEY')
+except UndefinedValueError as exc:
+    raise ImproperlyConfigured(
+        'SECRET_KEY environment variable is required. '
+        'Set SECRET_KEY in your environment (use .env for local development, but never commit it).'
+    ) from exc
+
+
+def _validate_allowed_hosts(hosts):
+    for host in hosts:
+        if '://' in host or '/' in host or ' ' in host:
+            raise ImproperlyConfigured(
+                f'ALLOWED_HOSTS entries must be hostnames only, without scheme or path: {host!r}'
+            )
+
 
 ALLOWED_HOSTS_RAW = config('ALLOWED_HOSTS', default='')
 if ALLOWED_HOSTS_RAW:
     ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_RAW.split(',') if host.strip()]
-elif DEBUG or RUNNING_TESTS:
-    ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'testserver']
+    _validate_allowed_hosts(ALLOWED_HOSTS)
+elif DEBUG:
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 else:
     raise ImproperlyConfigured(
         'ALLOWED_HOSTS must be set when DEBUG=False. '
@@ -84,6 +88,8 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
+# SQLite is suitable for local development and tests only.
+# Production deployments should use PostgreSQL or MySQL.
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -107,26 +113,13 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+X_FRAME_OPTIONS = 'DENY'
+
 if not DEBUG:
     CSRF_COOKIE_SECURE = True
     CSRF_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SECURE = True
     SESSION_COOKIE_HTTPONLY = True
-
-
-def _validate_cors_origins(origins):
-    """Reject wildcards; credentials must only be sent to explicit trusted origins."""
-    for origin in origins:
-        if '*' in origin:
-            raise ImproperlyConfigured(
-                'CORS_ALLOWED_ORIGINS must not contain wildcards when '
-                'CORS_ALLOW_CREDENTIALS is True.'
-            )
-        if not origin.startswith(('http://', 'https://')):
-            raise ImproperlyConfigured(
-                f'CORS origin must include scheme: {origin!r}'
-            )
-
 
 CORS_ORIGINS_RAW = config('CORS_ALLOWED_ORIGINS', default='')
 if CORS_ORIGINS_RAW:
@@ -141,14 +134,21 @@ elif DEBUG:
 else:
     CORS_ALLOWED_ORIGINS = []
 
-if not DEBUG and not RUNNING_TESTS and not CORS_ALLOWED_ORIGINS:
+if not DEBUG and not CORS_ALLOWED_ORIGINS:
     raise ImproperlyConfigured(
         'CORS_ALLOWED_ORIGINS must be set when DEBUG=False. '
         'Provide a comma-separated list of trusted frontend origins, or serve '
         'frontend and API under the same origin via a reverse proxy.'
     )
 
-_validate_cors_origins(CORS_ALLOWED_ORIGINS)
+for origin in CORS_ALLOWED_ORIGINS:
+    if '*' in origin:
+        raise ImproperlyConfigured(
+            'CORS_ALLOWED_ORIGINS must not contain wildcards (including patterns like '
+            'http://*.example.com) when CORS_ALLOW_CREDENTIALS is True.'
+        )
+    if not origin.startswith(('http://', 'https://')):
+        raise ImproperlyConfigured(f'CORS origin must include scheme: {origin!r}')
 
 # Only allow credentials for explicitly listed origins (never use CORS_ALLOW_ALL_ORIGINS).
 CORS_ALLOW_CREDENTIALS = True
