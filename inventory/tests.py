@@ -213,3 +213,49 @@ class InventoryTransactionAPITests(AuthenticatedAPITestCase):
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         self.product.refresh_from_db()
         self.assertEqual(self.product.stock_quantity, 10)
+
+    def test_update_transaction_recalculates_stock(self):
+        in_response = self.client.post(
+            '/api/transactions/',
+            {
+                'product': self.product.id,
+                'transaction_type': InventoryTransaction.TransactionType.IN,
+                'quantity': 10,
+            },
+            format='json',
+        )
+        update_response = self.client.patch(
+            f'/api/transactions/{in_response.data["id"]}/',
+            {'quantity': 15},
+            format='json',
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 15)
+
+    def test_delete_in_transaction_with_dependent_out_is_rejected(self):
+        in_response = self.client.post(
+            '/api/transactions/',
+            {
+                'product': self.product.id,
+                'transaction_type': InventoryTransaction.TransactionType.IN,
+                'quantity': 10,
+            },
+            format='json',
+        )
+        self.client.post(
+            '/api/transactions/',
+            {
+                'product': self.product.id,
+                'transaction_type': InventoryTransaction.TransactionType.OUT,
+                'quantity': 3,
+            },
+            format='json',
+        )
+        delete_response = self.client.delete(f'/api/transactions/{in_response.data["id"]}/')
+        self.assertEqual(delete_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(
+            InventoryTransaction.objects.filter(pk=in_response.data['id']).exists()
+        )
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 7)

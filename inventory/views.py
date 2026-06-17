@@ -1,4 +1,6 @@
+from django.db import transaction as db_transaction
 from rest_framework import viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAdminUser
 
 from .models import Category, InventoryTransaction, Product
@@ -7,7 +9,7 @@ from .serializers import (
     InventoryTransactionSerializer,
     ProductSerializer,
 )
-from .services import sync_product_stock
+from .services import StockError, sync_product_stock, validate_transaction_deletion
 
 
 class AdminOnlyViewSet(viewsets.ModelViewSet):
@@ -30,12 +32,11 @@ class InventoryTransactionViewSet(AdminOnlyViewSet):
 
     def perform_destroy(self, instance):
         product = instance.product
-        instance.delete()
         try:
+            validate_transaction_deletion(instance)
+        except StockError as exc:
+            raise ValidationError(exc.detail) from exc
+
+        with db_transaction.atomic():
+            instance.delete()
             sync_product_stock(product)
-        except Exception as exc:
-            from rest_framework.exceptions import ValidationError
-            from .services import StockError
-            if isinstance(exc, StockError):
-                raise ValidationError(exc.detail) from exc
-            raise

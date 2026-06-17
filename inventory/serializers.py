@@ -72,8 +72,13 @@ class InventoryTransactionSerializer(serializers.ModelSerializer):
         )
         if product and transaction_type and quantity is not None:
             exclude_id = self.instance.pk if self.instance else None
+            timestamp = self.instance.timestamp if self.instance else None
             validate_transaction_change(
-                product, transaction_type, quantity, exclude_transaction_id=exclude_id
+                product,
+                transaction_type,
+                quantity,
+                exclude_transaction_id=exclude_id,
+                timestamp=timestamp,
             )
         return attrs
 
@@ -89,4 +94,3 @@ class InventoryTransactionSerializer(serializers.ModelSerializer):
         instance.save()
         sync_product_stock(instance.product)
         return instance
-

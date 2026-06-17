@@ -14,25 +14,31 @@ Single-admin Inventory Management backend using Django and Django REST Framework
   - `OUT`: subtracts quantity; validation prevents negative stock.
   - `ADJUST`: sets stock to the given quantity (absolute correction).
   - Stock is recalculated by replaying transactions chronologically on update/delete.
+  - `validate_transaction_deletion()` dry-runs replay before delete to prevent data inconsistency.
+  - `validate_transaction_change()` assigns a realistic timestamp to provisional transactions and re-sorts before replay.
 - **SKU validation**: Case-insensitive uniqueness enforced in `ProductSerializer`.
 - **API docs**: Swagger UI at `/api/docs/` via `drf-spectacular`.
 - **Database**: SQLite for development (default Django setup).
+- **Security defaults** (`config/settings.py`):
+  - `DEBUG` defaults to `False`; set `DEBUG=True` explicitly for local development.
+  - `SECRET_KEY` is required unless `DEBUG=True` (or running tests).
+  - `ALLOWED_HOSTS` defaults to `localhost,127.0.0.1`.
 
 ## Files Changed
 
 | File | Purpose |
 |------|---------|
 | `requirements.txt` | Django, DRF, SimpleJWT, drf-spectacular, python-decouple |
-| `config/settings.py` | DRF, JWT, spectacular, inventory app configuration |
+| `config/settings.py` | DRF, JWT, spectacular, secure defaults |
 | `config/urls.py` | Auth, API, schema, and Swagger routes |
 | `inventory/models.py` | Category, Product, InventoryTransaction models |
 | `inventory/serializers.py` | DRF serializers with validation |
-| `inventory/services.py` | Stock calculation and replay logic |
-| `inventory/views.py` | Admin-protected ViewSets |
+| `inventory/services.py` | Stock calculation, validation, and replay logic |
+| `inventory/views.py` | Admin-protected ViewSets with safe delete |
 | `inventory/urls.py` | Router for categories, products, transactions |
 | `inventory/admin.py` | Django admin registration |
 | `inventory/management/commands/setup_admin.py` | Single admin user bootstrap |
-| `inventory/tests.py` | Auth, CRUD, and stock business logic tests |
+| `inventory/tests.py` | Auth, CRUD, stock, update, and delete validation tests |
 | `inventory/migrations/0001_initial.py` | Initial schema migration |
 | `.gitignore` | Python/Django ignores |
 
@@ -52,9 +58,9 @@ Single-admin Inventory Management backend using Django and Django REST Framework
 
 ```bash
 pip install -r requirements.txt
-python manage.py migrate
-python manage.py setup_admin
-python manage.py runserver
+DEBUG=True SECRET_KEY=your-dev-key python manage.py migrate
+DEBUG=True SECRET_KEY=your-dev-key python manage.py setup_admin
+DEBUG=True SECRET_KEY=your-dev-key python manage.py runserver
 python manage.py test inventory
 ```
 
@@ -66,6 +72,6 @@ python manage.py test inventory
 
 ## Open Questions / Follow-ups
 
-- Production database and `SECRET_KEY` should be configured via environment variables.
 - Rate limiting and audit logging are out of scope for this task.
-- Deleting a transaction that would leave remaining transactions invalid (e.g. deleting an IN while OUTs exist) returns a 400 validation error.
+- **Performance**: `sync_product_stock()` replays all transactions for a product on every create/update/delete (O(n) per operation). This is acceptable for the current scope but will not scale for products with very large transaction histories. A follow-up task could optimize with incremental stock updates or cached running balances.
+- Deleting a transaction that would leave remaining transactions invalid (e.g. deleting an IN while OUTs exist) returns a 400 validation error and leaves data unchanged.
