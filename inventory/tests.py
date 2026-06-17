@@ -2,6 +2,9 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -494,6 +497,18 @@ class SecurityAPITests(APITestCase):
             HTTP_COOKIE=f'inventory_refresh={old_refresh_cookie}; csrftoken={csrf}',
         )
         self.assertEqual(stale_refresh.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class SetupAdminCommandTests(APITestCase):
+    @override_settings(DEBUG=False)
+    def test_setup_admin_rejects_default_password_when_debug_false(self):
+        with self.assertRaises(CommandError):
+            call_command('setup_admin')
+
+    @override_settings(DEBUG=True)
+    def test_setup_admin_allows_default_password_in_debug(self):
+        call_command('setup_admin', verbosity=0)
+        self.assertTrue(User.objects.filter(username='admin', is_superuser=True).exists())
 
 
 class IntegrationFlowTests(AuthenticatedAPITestCase):

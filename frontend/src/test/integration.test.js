@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiRequest, fetchCsrfToken, onSessionExpired } from '../api/client';
+import {
+  apiRequest,
+  fetchCsrfToken,
+  fetchProducts,
+  fetchTransactions,
+  onSessionExpired,
+} from '../api/client';
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -76,5 +82,36 @@ describe('api client integration', () => {
     await expect(apiRequest('/api/categories/')).rejects.toThrow(
       'Network error. Check your connection and try again.',
     );
+  });
+
+  it('requests paginated product and transaction lists', async () => {
+    const requestedUrls = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url, options = {}) => {
+        requestedUrls.push(String(url));
+        if (String(url).includes('/api/auth/csrf/')) {
+          return jsonResponse({ csrfToken: 'csrf-token' });
+        }
+        if (String(url).includes('/api/products/')) {
+          return jsonResponse({ count: 40, results: [], next: null, previous: '/api/products/?page=1' });
+        }
+        if (String(url).includes('/api/transactions/')) {
+          return jsonResponse({ count: 25, results: [], next: null, previous: null });
+        }
+        return jsonResponse({}, 404);
+      }),
+    );
+
+    await fetchCsrfToken();
+    await fetchProducts({}, 2);
+    await fetchTransactions({ type: 'IN' }, 3);
+
+    expect(requestedUrls.some((url) => url.includes('/api/products/') && url.includes('page=2'))).toBe(true);
+    expect(
+      requestedUrls.some(
+        (url) => url.includes('/api/transactions/') && url.includes('page=3') && url.includes('transaction_type=IN'),
+      ),
+    ).toBe(true);
   });
 });

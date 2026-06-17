@@ -1,5 +1,8 @@
 """
 Django settings for config project.
+
+WARNING: DEBUG must be False in production. When DEBUG=True, permissive dev defaults
+for ALLOWED_HOSTS and CORS_ALLOWED_ORIGINS are applied.
 """
 
 import sys
@@ -13,21 +16,22 @@ from django.core.management.utils import get_random_secret_key
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 DEBUG = config('DEBUG', default=False, cast=bool)
-RUNNING_TESTS = 'test' in sys.argv
+# Only True when invoked via `manage.py test` (not user-controlled env/config).
+RUNNING_TESTS = len(sys.argv) > 1 and sys.argv[1] == 'test'
 
-SECRET_KEY = config('SECRET_KEY', default=None)
-if not SECRET_KEY:
-    if RUNNING_TESTS:
-        SECRET_KEY = get_random_secret_key()
-    else:
+if RUNNING_TESTS:
+    SECRET_KEY = config('SECRET_KEY', default=get_random_secret_key())
+else:
+    SECRET_KEY = config('SECRET_KEY', default=None)
+    if not SECRET_KEY:
         raise ImproperlyConfigured(
             'SECRET_KEY environment variable is required. '
             'Set SECRET_KEY in your environment or .env file.'
         )
 
-_allowed_hosts_raw = config('ALLOWED_HOSTS', default='')
-if _allowed_hosts_raw:
-    ALLOWED_HOSTS = [host.strip() for host in _allowed_hosts_raw.split(',') if host.strip()]
+ALLOWED_HOSTS_RAW = config('ALLOWED_HOSTS', default='')
+if ALLOWED_HOSTS_RAW:
+    ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_RAW.split(',') if host.strip()]
 elif DEBUG or RUNNING_TESTS:
     ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'testserver']
 else:
@@ -109,10 +113,25 @@ if not DEBUG:
     SESSION_COOKIE_SECURE = True
     SESSION_COOKIE_HTTPONLY = True
 
-_cors_origins_raw = config('CORS_ALLOWED_ORIGINS', default='')
-if _cors_origins_raw:
+
+def _validate_cors_origins(origins):
+    """Reject wildcards; credentials must only be sent to explicit trusted origins."""
+    for origin in origins:
+        if '*' in origin:
+            raise ImproperlyConfigured(
+                'CORS_ALLOWED_ORIGINS must not contain wildcards when '
+                'CORS_ALLOW_CREDENTIALS is True.'
+            )
+        if not origin.startswith(('http://', 'https://')):
+            raise ImproperlyConfigured(
+                f'CORS origin must include scheme: {origin!r}'
+            )
+
+
+CORS_ORIGINS_RAW = config('CORS_ALLOWED_ORIGINS', default='')
+if CORS_ORIGINS_RAW:
     CORS_ALLOWED_ORIGINS = [
-        origin.strip() for origin in _cors_origins_raw.split(',') if origin.strip()
+        origin.strip() for origin in CORS_ORIGINS_RAW.split(',') if origin.strip()
     ]
 elif DEBUG:
     CORS_ALLOWED_ORIGINS = [
@@ -122,6 +141,16 @@ elif DEBUG:
 else:
     CORS_ALLOWED_ORIGINS = []
 
+if not DEBUG and not RUNNING_TESTS and not CORS_ALLOWED_ORIGINS:
+    raise ImproperlyConfigured(
+        'CORS_ALLOWED_ORIGINS must be set when DEBUG=False. '
+        'Provide a comma-separated list of trusted frontend origins, or serve '
+        'frontend and API under the same origin via a reverse proxy.'
+    )
+
+_validate_cors_origins(CORS_ALLOWED_ORIGINS)
+
+# Only allow credentials for explicitly listed origins (never use CORS_ALLOW_ALL_ORIGINS).
 CORS_ALLOW_CREDENTIALS = True
 
 REST_FRAMEWORK = {
