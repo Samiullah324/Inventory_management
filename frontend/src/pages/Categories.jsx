@@ -10,6 +10,8 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import LoadingSpinner from '../components/LoadingSpinner'
 import Modal from '../components/Modal'
 import { useNotification } from '../context/NotificationContext'
+import { sanitizeCategoryPayload } from '../utils/sanitize'
+import { validateCategoryForm } from '../utils/validation'
 
 const emptyForm = { name: '', description: '' }
 
@@ -57,8 +59,7 @@ export default function Categories() {
   }
 
   const validateForm = () => {
-    const errors = {}
-    if (!form.name.trim()) errors.name = 'Name is required'
+    const errors = validateCategoryForm(form)
     setFormErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -67,10 +68,7 @@ export default function Categories() {
     e.preventDefault()
     if (!validateForm()) return
 
-    const payload = {
-      name: form.name.trim(),
-      description: form.description.trim(),
-    }
+    const payload = sanitizeCategoryPayload(form)
 
     setSaving(true)
     try {

@@ -364,6 +364,24 @@ th {
   margin-bottom: 0.5rem;
 }
 
+.login-card__alert {
+  color: var(--danger);
+  background: #fee2e2;
+  border-radius: 0.6rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+}
+
+.field__hint {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.field--readonly input {
+  background: #f3f4f6;
+  color: var(--muted);
+}
+
 .loading {
   display: flex;
   align-items: center;

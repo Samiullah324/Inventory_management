@@ -3,6 +3,8 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { extractErrorMessage } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useNotification } from '../context/NotificationContext'
+import { sanitizeText } from '../utils/sanitize'
+import { validateLogin } from '../utils/validation'
 
 export default function Login() {
   const { authenticated, login } = useAuth()
@@ -18,21 +20,15 @@ export default function Login() {
     return <Navigate to="/dashboard" replace />
   }
 
-  const validate = () => {
-    const next = {}
-    if (!username.trim()) next.username = 'Username is required'
-    if (!password) next.password = 'Password is required'
-    setErrors(next)
-    return Object.keys(next).length === 0
-  }
-
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!validate()) return
+    const nextErrors = validateLogin({ username, password })
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length > 0) return
 
     setLoading(true)
     try {
-      await login(username.trim(), password)
+      await login(sanitizeText(username, 150), password)
       notify('Signed in successfully')
       const redirectTo = location.state?.from?.pathname || '/dashboard'
       navigate(redirectTo, { replace: true })
@@ -48,6 +44,11 @@ export default function Login() {
       <form className="login-card" onSubmit={handleSubmit}>
         <h1>Admin Login</h1>
         <p className="login-card__subtitle">Sign in to manage inventory</p>
+        {location.state?.sessionExpired && (
+          <p className="login-card__alert" role="alert">
+            Your session has expired. Please sign in again.
+          </p>
+        )}
 
         <label className="field">
           <span>Username</span>

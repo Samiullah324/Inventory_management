@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
+import SessionGuard from './components/SessionGuard.jsx'
 import Categories from './pages/Categories.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Login from './pages/Login.jsx'
@@ -9,7 +10,9 @@ import Transactions from './pages/Transactions.jsx'
 
 export default function App() {
   return (
-    <Routes>
+    <>
+      <SessionGuard />
+      <Routes>
       <Route path="/login" element={<Login />} />
       <Route
         element={
@@ -25,6 +28,7 @@ export default function App() {
         <Route path="transactions" element={<Transactions />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
+      </Routes>
+    </>
   )
 }

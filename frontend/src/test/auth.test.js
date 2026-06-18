@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   clearTokens,
   getAccessToken,
+  getRefreshToken,
   isAuthenticated,
+  logout,
   setTokens,
 } from '../api/auth'
 
@@ -20,6 +22,14 @@ describe('auth storage', () => {
   it('clears tokens on logout state', () => {
     setTokens('access-123', 'refresh-456')
     clearTokens()
+    expect(isAuthenticated()).toBe(false)
+  })
+
+  it('logout removes both access and refresh tokens', () => {
+    setTokens('access-123', 'refresh-456')
+    logout()
+    expect(getAccessToken()).toBeNull()
+    expect(getRefreshToken()).toBeNull()
     expect(isAuthenticated()).toBe(false)
   })
 })

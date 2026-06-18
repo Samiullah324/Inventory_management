@@ -13,6 +13,8 @@ import Modal from '../components/Modal'
 import { useNotification } from '../context/NotificationContext'
 import { formatCurrency } from '../utils/formatters'
 import { filterProducts, getStockStatus, getStockStatusLabel } from '../utils/inventory'
+import { sanitizeProductPayload } from '../utils/sanitize'
+import { validateProductForm } from '../utils/validation'
 
 const emptyForm = {
   name: '',
@@ -91,16 +93,7 @@ export default function Products() {
   }
 
   const validateForm = () => {
-    const errors = {}
-    if (!form.name.trim()) errors.name = 'Name is required'
-    if (!form.sku.trim()) errors.sku = 'SKU is required'
-    if (!form.category) errors.category = 'Category is required'
-    if (!form.unit_price || Number(form.unit_price) < 0) {
-      errors.unit_price = 'Valid unit price is required'
-    }
-    if (form.minimum_stock_threshold === '' || Number(form.minimum_stock_threshold) < 0) {
-      errors.minimum_stock_threshold = 'Threshold must be zero or greater'
-    }
+    const errors = validateProductForm(form)
     setFormErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -109,13 +102,14 @@ export default function Products() {
     e.preventDefault()
     if (!validateForm()) return
 
+    const sanitized = sanitizeProductPayload(form)
     const payload = {
-      name: form.name.trim(),
-      sku: form.sku.trim(),
-      category: Number(form.category),
-      description: form.description.trim(),
-      unit_price: form.unit_price,
-      minimum_stock_threshold: Number(form.minimum_stock_threshold),
+      name: sanitized.name,
+      sku: sanitized.sku,
+      category: Number(sanitized.category),
+      description: sanitized.description,
+      unit_price: sanitized.unit_price,
+      minimum_stock_threshold: Number(sanitized.minimum_stock_threshold),
     }
 
     setSaving(true)
@@ -330,6 +324,15 @@ export default function Products() {
                 <span className="field__error">{formErrors.minimum_stock_threshold}</span>
               )}
             </label>
+            {editing && (
+              <div className="field field--readonly">
+                <span>Current stock</span>
+                <input value={editing.stock_quantity} readOnly disabled />
+                <span className="field__hint">
+                  Stock cannot be edited here. Use Inventory Transactions to adjust stock.
+                </span>
+              </div>
+            )}
             <label className="field">
               <span>Description</span>
               <textarea

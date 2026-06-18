@@ -12,6 +12,8 @@ import Modal from '../components/Modal'
 import { useNotification } from '../context/NotificationContext'
 import { formatDateTime } from '../utils/formatters'
 import { filterTransactions } from '../utils/inventory'
+import { sanitizeTransactionPayload } from '../utils/sanitize'
+import { validateTransactionForm } from '../utils/validation'
 
 const emptyForm = {
   product: '',
@@ -72,12 +74,7 @@ export default function Transactions() {
   }
 
   const validateForm = () => {
-    const errors = {}
-    if (!form.product) errors.product = 'Product is required'
-    if (!form.transaction_type) errors.transaction_type = 'Type is required'
-    if (!form.quantity || Number(form.quantity) <= 0) {
-      errors.quantity = 'Quantity must be greater than zero'
-    }
+    const errors = validateTransactionForm(form)
     setFormErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -86,13 +83,15 @@ export default function Transactions() {
     e.preventDefault()
     if (!validateForm()) return
 
+    const sanitized = sanitizeTransactionPayload(form)
+
     setSaving(true)
     try {
       await createTransaction({
-        product: Number(form.product),
-        transaction_type: form.transaction_type,
-        quantity: Number(form.quantity),
-        notes: form.notes.trim(),
+        product: Number(sanitized.product),
+        transaction_type: sanitized.transaction_type,
+        quantity: Number(sanitized.quantity),
+        notes: sanitized.notes,
       })
       notify('Transaction recorded')
       setModalOpen(false)

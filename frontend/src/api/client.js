@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { clearTokens, getAccessToken, getRefreshToken, setTokens } from './auth'
+import { notifySessionExpired } from './session'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
@@ -18,38 +19,52 @@ client.interceptors.request.use((config) => {
 
 let refreshPromise = null
 
+export function resetRefreshState() {
+  refreshPromise = null
+}
+
+export async function refreshAccessToken(refresh) {
+  const response = await axios.post(`${API_BASE}/auth/token/refresh/`, { refresh })
+  setTokens(response.data.access, refresh)
+  return response.data.access
+}
+
+function handleAuthFailure() {
+  clearTokens()
+  notifySessionExpired()
+}
+
+export function acquireAccessTokenRefresh() {
+  const refresh = getRefreshToken()
+  if (!refresh) {
+    handleAuthFailure()
+    return Promise.reject(new Error('No refresh token'))
+  }
+
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken(refresh)
+      .catch((refreshError) => {
+        handleAuthFailure()
+        throw refreshError
+      })
+      .finally(() => {
+        refreshPromise = null
+      })
+  }
+
+  return refreshPromise
+}
+
 client.interceptors.response.use(
   (response) => response,
   async (error) => {
     const original = error.config
-    if (error.response?.status !== 401 || original._retry) {
+    if (!original || error.response?.status !== 401 || original._retry) {
       return Promise.reject(error)
-    }
-
-    const refresh = getRefreshToken()
-    if (!refresh) {
-      clearTokens()
-      return Promise.reject(error)
-    }
-
-    if (!refreshPromise) {
-      refreshPromise = axios
-        .post(`${API_BASE}/auth/token/refresh/`, { refresh })
-        .then((res) => {
-          setTokens(res.data.access, refresh)
-          return res.data.access
-        })
-        .catch(() => {
-          clearTokens()
-          throw error
-        })
-        .finally(() => {
-          refreshPromise = null
-        })
     }
 
     try {
-      const access = await refreshPromise
+      const access = await acquireAccessTokenRefresh()
       original._retry = true
       original.headers.Authorization = `Bearer ${access}`
       return client(original)
