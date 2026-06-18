@@ -492,3 +492,18 @@ class ExceptionHandlerTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.data['error'], 'An unexpected server error occurred.')
         self.assertEqual(response.data['details'], {})
+
+
+class HealthCheckTests(APITestCase):
+    def test_health_check_returns_ok_without_authentication(self):
+        response = self.client.get('/api/health/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], 'ok')
+        self.assertEqual(response.data['database'], 'up')
+
+    @patch('inventory.views.connection.ensure_connection', side_effect=Exception('db down'))
+    def test_health_check_returns_unhealthy_when_database_is_down(self, mock_ensure):
+        response = self.client.get('/api/health/')
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data['status'], 'unhealthy')
+        self.assertEqual(response.data['database'], 'down')
