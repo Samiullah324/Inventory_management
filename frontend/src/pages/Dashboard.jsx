@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { extractErrorMessage, getDashboardStats, getLowStock } from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { useNotification } from '../context/NotificationContext'
+import { DASHBOARD_POLL_MS } from '../utils/auth'
 import { formatCurrency, formatDateTime } from '../utils/formatters'
 
 export default function Dashboard() {
@@ -11,8 +12,8 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null)
   const [lowStockProducts, setLowStockProducts] = useState([])
 
-  const loadDashboard = useCallback(async () => {
-    setLoading(true)
+  const loadDashboard = useCallback(async ({ showLoading = true } = {}) => {
+    if (showLoading) setLoading(true)
     setError(null)
     try {
       const [dashboardStats, lowStock] = await Promise.all([
@@ -26,14 +27,41 @@ export default function Dashboard() {
       setError(message)
       notify(message, 'error')
     } finally {
-      setLoading(false)
+      if (showLoading) setLoading(false)
     }
   }, [notify])
 
   useEffect(() => {
-    loadDashboard()
-    const interval = setInterval(loadDashboard, 60000)
-    return () => clearInterval(interval)
+    loadDashboard({ showLoading: true })
+
+    let intervalId = null
+
+    const startPolling = () => {
+      if (intervalId) clearInterval(intervalId)
+      intervalId = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          loadDashboard({ showLoading: false })
+        }
+      }, DASHBOARD_POLL_MS)
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadDashboard({ showLoading: false })
+        startPolling()
+      } else if (intervalId) {
+        clearInterval(intervalId)
+        intervalId = null
+      }
+    }
+
+    startPolling()
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      if (intervalId) clearInterval(intervalId)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [loadDashboard])
 
   if (loading) return <LoadingSpinner label="Loading dashboard..." />
@@ -46,7 +74,7 @@ export default function Dashboard() {
         </div>
         <div className="panel panel--error">
           <p>{error}</p>
-          <button type="button" className="btn btn--primary" onClick={loadDashboard}>
+          <button type="button" className="btn btn--primary" onClick={() => loadDashboard()}>
             Retry
           </button>
         </div>
@@ -70,7 +98,7 @@ export default function Dashboard() {
           <h2>Dashboard</h2>
           <p>Overview of inventory health and recent activity</p>
         </div>
-        <button type="button" className="btn btn--secondary" onClick={loadDashboard}>
+        <button type="button" className="btn btn--secondary" onClick={() => loadDashboard()}>
           Refresh
         </button>
       </div>

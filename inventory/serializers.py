@@ -3,7 +3,7 @@ from decimal import Decimal
 from rest_framework import serializers
 
 from .models import Category, InventoryTransaction, Product
-from .services import sync_product_stock, validate_transaction_change
+from .services import StockError, sync_product_stock, validate_transaction_change
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -128,13 +128,16 @@ class InventoryTransactionSerializer(serializers.ModelSerializer):
         if product and transaction_type and quantity is not None:
             exclude_id = self.instance.pk if self.instance else None
             timestamp = self.instance.timestamp if self.instance else None
-            validate_transaction_change(
-                product,
-                transaction_type,
-                quantity,
-                exclude_transaction_id=exclude_id,
-                timestamp=timestamp,
-            )
+            try:
+                validate_transaction_change(
+                    product,
+                    transaction_type,
+                    quantity,
+                    exclude_transaction_id=exclude_id,
+                    timestamp=timestamp,
+                )
+            except StockError as exc:
+                raise serializers.ValidationError(exc.detail) from exc
         return attrs
 
     def create(self, validated_data):

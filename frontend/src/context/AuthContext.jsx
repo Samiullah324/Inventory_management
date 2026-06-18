@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { isAuthenticated as checkAuth, login as apiLogin, logout as apiLogout } from '../api/auth'
-import { refreshToken } from '../services/api'
+import { isAuthenticated as checkAuth, isSessionValid } from '../utils/auth'
+import { login as apiLogin, logout as apiLogout, refreshToken } from '../services/api'
 
 const AuthContext = createContext(null)
 
@@ -12,11 +12,15 @@ export function AuthProvider({ children }) {
 
     async function validateSession() {
       if (!checkAuth()) return
+      if (isSessionValid()) {
+        if (active) setAuthenticated(true)
+        return
+      }
       try {
         await refreshToken()
         if (active) setAuthenticated(true)
       } catch {
-        apiLogout()
+        await apiLogout()
         if (active) setAuthenticated(false)
       }
     }

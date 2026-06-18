@@ -1,3 +1,4 @@
+from django.conf import settings
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import exception_handler
@@ -33,6 +34,9 @@ def inventory_exception_handler(exc, context):
                 'details': {},
             }
         return response
+
+    if settings.DEBUG:
+        return None
 
     return Response(
         {'error': 'An unexpected server error occurred.', 'details': {}},

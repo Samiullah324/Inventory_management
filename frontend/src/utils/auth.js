@@ -36,3 +36,26 @@ export function clearTokens() {
 export function isAuthenticated() {
   return Boolean(getAccessToken())
 }
+
+function decodeAccessTokenPayload(token) {
+  try {
+    const payload = token.split('.')[1]
+    if (!payload) return null
+    return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
+  } catch {
+    return null
+  }
+}
+
+export function isAccessTokenExpired(token = getAccessToken()) {
+  if (!token) return true
+  const payload = decodeAccessTokenPayload(token)
+  if (!payload?.exp) return true
+  return payload.exp * 1000 <= Date.now()
+}
+
+export function isSessionValid() {
+  return isAuthenticated() && !isAccessTokenExpired()
+}
+
+export const DASHBOARD_POLL_MS = Number(import.meta.env.VITE_DASHBOARD_POLL_MS) || 60000

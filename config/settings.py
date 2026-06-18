@@ -9,6 +9,8 @@ from pathlib import Path
 from decouple import config
 from django.core.exceptions import ImproperlyConfigured
 
+from config.cors import DEFAULT_CORS_ORIGINS, parse_cors_allowed_origins
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 DEBUG = config('DEBUG', default=False, cast=bool)
@@ -100,10 +102,10 @@ REST_FRAMEWORK = {
     'EXCEPTION_HANDLER': 'inventory.exceptions.inventory_exception_handler',
 }
 
-CORS_ALLOWED_ORIGINS = config(
-    'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:5173,http://127.0.0.1:5173',
-).split(',')
+CORS_ALLOWED_ORIGINS = parse_cors_allowed_origins(
+    config('CORS_ALLOWED_ORIGINS', default=','.join(DEFAULT_CORS_ORIGINS)),
+    debug=DEBUG,
+)
 CORS_ALLOW_CREDENTIALS = True
 
 SIMPLE_JWT = {

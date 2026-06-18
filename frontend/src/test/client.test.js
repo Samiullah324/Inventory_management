@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractErrorMessage } from '../api/client'
+import { extractErrorMessage } from '../services/api'
 
 describe('extractErrorMessage', () => {
   it('returns detail message from API errors', () => {

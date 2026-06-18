@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { clearTokens, setTokens } from '../api/auth'
-import { acquireAccessTokenRefresh, refreshAccessToken, resetRefreshState } from '../api/client'
+import { clearTokens, setTokens } from '../utils/auth'
+import { acquireAccessTokenRefresh, refreshAccessToken, resetRefreshState } from '../services/api'
 
 describe('token refresh lock', () => {
   beforeEach(() => {
@@ -32,6 +32,11 @@ describe('token refresh lock', () => {
     vi.spyOn(axios, 'post').mockResolvedValue({ data: { access: 'new-access' } })
     await refreshAccessToken('refresh-token')
     expect(localStorage.getItem('inventory_access_token')).toBe('new-access')
+  })
+
+  it('rejects malformed refresh responses', async () => {
+    vi.spyOn(axios, 'post').mockResolvedValue({ data: {} })
+    await expect(refreshAccessToken('refresh-token')).rejects.toThrow('Invalid refresh response')
   })
 
   it('clears tokens and dispatches session expiry when refresh fails', async () => {

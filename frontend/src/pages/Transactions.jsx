@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { extractErrorMessage } from '../api/client'
-import { fetchProducts } from '../api/products'
 import {
   createTransaction,
   deleteTransaction,
-  fetchTransactions,
-} from '../api/transactions'
+  extractErrorMessage,
+  getProducts,
+  getTransactions,
+} from '../services/api'
 import ConfirmDialog from '../components/ConfirmDialog'
 import LoadingSpinner from '../components/LoadingSpinner'
 import Modal from '../components/Modal'
@@ -43,8 +43,8 @@ export default function Transactions() {
     setLoading(true)
     try {
       const [transactionData, productData] = await Promise.all([
-        fetchTransactions(),
-        fetchProducts(),
+        getTransactions(),
+        getProducts(),
       ])
       setTransactions(transactionData)
       setProducts(productData)

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { SESSION_EXPIRED_EVENT, notifySessionExpired } from '../api/session'
+import { SESSION_EXPIRED_EVENT, notifySessionExpired } from '../utils/session'
 
 describe('session expiry', () => {
   beforeEach(() => {

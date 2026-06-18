@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { extractErrorMessage } from '../api/client'
-import { fetchCategories } from '../api/categories'
 import {
   createProduct,
   deleteProduct,
+  extractErrorMessage,
+  getCategories,
   getLowStock,
-  getProducts as fetchProducts,
+  getProducts,
   updateProduct,
 } from '../services/api'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -50,7 +50,7 @@ export default function Products() {
     try {
       const [productData, categoryData, lowStockData] = await Promise.all([
         fetchProducts(),
-        fetchCategories(),
+        getCategories(),
         getLowStock(),
       ])
       setProducts(productData)

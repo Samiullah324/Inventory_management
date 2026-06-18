@@ -21,13 +21,7 @@ from .services import StockError, sync_product_stock, validate_transaction_delet
 
 class ErrorHandlingMixin:
     def handle_exception(self, exc):
-        try:
-            return super().handle_exception(exc)
-        except Exception as exc:
-            return Response(
-                {'error': 'An unexpected server error occurred.', 'details': {}},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        return super().handle_exception(exc)
 
 
 class AdminOnlyViewSet(ErrorHandlingMixin, viewsets.ModelViewSet):

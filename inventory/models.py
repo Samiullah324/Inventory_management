@@ -1,4 +1,3 @@
-from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -37,11 +36,6 @@ class Product(models.Model):
                 name='product_stock_non_negative',
             ),
         ]
-
-    def save(self, *args, **kwargs):
-        if self.stock_quantity < 0:
-            raise ValidationError('Stock quantity cannot be negative.')
-        super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.name} ({self.sku})'

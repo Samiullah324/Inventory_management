@@ -3,7 +3,9 @@ import {
   clearTokens,
   getAccessToken,
   getRefreshToken,
+  isAccessTokenExpired,
   isAuthenticated,
+  isSessionValid,
   setTokens,
 } from '../utils/auth'
 
@@ -39,5 +41,25 @@ describe('auth storage', () => {
     expect(getAccessToken()).toBeNull()
     expect(getRefreshToken()).toBeNull()
     expect(isAuthenticated()).toBe(false)
+  })
+
+  it('detects expired access tokens from JWT exp claim', () => {
+    const header = btoa(JSON.stringify({ alg: 'none', typ: 'JWT' }))
+    const expiredPayload = btoa(
+      JSON.stringify({ exp: Math.floor(Date.now() / 1000) - 60 }),
+    )
+    setTokens(`${header}.${expiredPayload}.sig`, 'refresh')
+    expect(isAccessTokenExpired()).toBe(true)
+    expect(isSessionValid()).toBe(false)
+  })
+
+  it('treats valid access tokens as a live session', () => {
+    const header = btoa(JSON.stringify({ alg: 'none', typ: 'JWT' }))
+    const validPayload = btoa(
+      JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 }),
+    )
+    setTokens(`${header}.${validPayload}.sig`, 'refresh')
+    expect(isAccessTokenExpired()).toBe(false)
+    expect(isSessionValid()).toBe(true)
   })
 })

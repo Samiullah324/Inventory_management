@@ -5,7 +5,7 @@ import {
   getRefreshToken,
   setTokens,
 } from '../utils/auth'
-import { notifySessionExpired } from '../api/session'
+import { notifySessionExpired } from '../utils/session'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
@@ -30,6 +30,9 @@ export function resetRefreshState() {
 
 export async function refreshAccessToken(refresh) {
   const response = await axios.post(`${API_BASE}/auth/refresh/`, { refresh })
+  if (!response.data?.access) {
+    throw new Error('Invalid refresh response')
+  }
   setTokens(response.data.access, refresh)
   return response.data.access
 }
