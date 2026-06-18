@@ -1,59 +1,114 @@
-import { useEffect, useState } from 'react'
-import { extractErrorMessage } from '../api/client'
-import { fetchProducts } from '../api/products'
-import { fetchTransactions } from '../api/transactions'
+import { useCallback, useEffect, useState } from 'react'
+import { extractErrorMessage, getDashboardStats, getLowStock } from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { useNotification } from '../context/NotificationContext'
-import { formatDateTime } from '../utils/formatters'
-import { computeDashboardStats } from '../utils/inventory'
+import { DASHBOARD_POLL_MS } from '../utils/auth'
+import { formatCurrency, formatDateTime } from '../utils/formatters'
 
 export default function Dashboard() {
   const { notify } = useNotification()
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [stats, setStats] = useState(null)
-  const [recentTransactions, setRecentTransactions] = useState([])
+  const [lowStockProducts, setLowStockProducts] = useState([])
 
-  useEffect(() => {
-    let active = true
-
-    async function load() {
-      setLoading(true)
-      try {
-        const [products, transactions] = await Promise.all([
-          fetchProducts(),
-          fetchTransactions(),
-        ])
-        if (!active) return
-        setStats(computeDashboardStats(products))
-        setRecentTransactions(transactions.slice(0, 10))
-      } catch (error) {
-        if (active) notify(extractErrorMessage(error), 'error')
-      } finally {
-        if (active) setLoading(false)
-      }
-    }
-
-    load()
-    return () => {
-      active = false
+  const loadDashboard = useCallback(async ({ showLoading = true } = {}) => {
+    if (showLoading) setLoading(true)
+    setError(null)
+    try {
+      const [dashboardStats, lowStock] = await Promise.all([
+        getDashboardStats(),
+        getLowStock(),
+      ])
+      setStats(dashboardStats)
+      setLowStockProducts(lowStock)
+    } catch (err) {
+      const message = extractErrorMessage(err)
+      setError(message)
+      notify(message, 'error')
+    } finally {
+      if (showLoading) setLoading(false)
     }
   }, [notify])
 
+  useEffect(() => {
+    loadDashboard({ showLoading: true })
+
+    let intervalId = null
+
+    const startPolling = () => {
+      if (intervalId) clearInterval(intervalId)
+      intervalId = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          loadDashboard({ showLoading: false })
+        }
+      }, DASHBOARD_POLL_MS)
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadDashboard({ showLoading: false })
+        startPolling()
+      } else if (intervalId) {
+        clearInterval(intervalId)
+        intervalId = null
+      }
+    }
+
+    startPolling()
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      if (intervalId) clearInterval(intervalId)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [loadDashboard])
+
   if (loading) return <LoadingSpinner label="Loading dashboard..." />
 
+  if (error) {
+    return (
+      <div className="page">
+        <div className="page__header">
+          <h2>Dashboard</h2>
+        </div>
+        <div className="panel panel--error">
+          <p>{error}</p>
+          <button type="button" className="btn btn--primary" onClick={() => loadDashboard()}>
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   const cards = [
-    { label: 'Total Products', value: stats.totalProducts },
-    { label: 'Total Stock', value: stats.totalStock },
-    { label: 'Low Stock Items', value: stats.lowStock, tone: 'warning' },
-    { label: 'Out of Stock', value: stats.outOfStock, tone: 'danger' },
+    { label: 'Total Products', value: stats.total_products },
+    { label: 'Low Stock Items', value: stats.low_stock_count, tone: 'warning' },
+    {
+      label: 'Total Inventory Value',
+      value: formatCurrency(stats.total_stock_value),
+    },
   ]
 
   return (
     <div className="page">
-      <div className="page__header">
-        <h2>Dashboard</h2>
-        <p>Overview of inventory health and recent activity</p>
+      <div className="page__header page__header--actions">
+        <div>
+          <h2>Dashboard</h2>
+          <p>Overview of inventory health and recent activity</p>
+        </div>
+        <button type="button" className="btn btn--secondary" onClick={() => loadDashboard()}>
+          Refresh
+        </button>
       </div>
+
+      {lowStockProducts.length > 0 && (
+        <div className="alert alert--warning" role="alert">
+          <strong>{lowStockProducts.length} product(s)</strong> are at or below their minimum
+          stock threshold.
+        </div>
+      )}
 
       <div className="stat-grid">
         {cards.map((card) => (
@@ -68,7 +123,7 @@ export default function Dashboard() {
         <div className="panel__header">
           <h3>Recent Inventory Activity</h3>
         </div>
-        {recentTransactions.length === 0 ? (
+        {stats.recent_transactions.length === 0 ? (
           <p className="empty-state">No transactions recorded yet.</p>
         ) : (
           <div className="table-wrap">
@@ -83,7 +138,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {recentTransactions.map((tx) => (
+                {stats.recent_transactions.map((tx) => (
                   <tr key={tx.id}>
                     <td>{formatDateTime(tx.timestamp)}</td>
                     <td>{tx.product_name}</td>

@@ -9,6 +9,8 @@ from pathlib import Path
 from decouple import config
 from django.core.exceptions import ImproperlyConfigured
 
+from config.cors import DEFAULT_CORS_ORIGINS, parse_cors_allowed_origins
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 DEBUG = config('DEBUG', default=False, cast=bool)
@@ -30,6 +32,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',
     'rest_framework',
     'drf_spectacular',
     'inventory',
@@ -38,6 +41,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -95,7 +99,14 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAdminUser',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'EXCEPTION_HANDLER': 'inventory.exceptions.inventory_exception_handler',
 }
+
+CORS_ALLOWED_ORIGINS = parse_cors_allowed_origins(
+    config('CORS_ALLOWED_ORIGINS', default=','.join(DEFAULT_CORS_ORIGINS)),
+    debug=DEBUG,
+)
+CORS_ALLOW_CREDENTIALS = True
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),

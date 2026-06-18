@@ -1,85 +1,93 @@
-# Task #1: Frontend Setup (React) – UI & Core Modules
+# Task #2: Integration & System Enhancement
 
 ## Scope
 
-React admin frontend for the Inventory Management System: authentication, dashboard, product/category CRUD, inventory transactions, responsive layout, loading states, and notifications.
+Full-stack integration between the Django REST API and React admin frontend: backend endpoints for dashboard stats and low-stock alerts, structured error handling, JWT auth contract alignment, CORS, stock validation, and frontend API service layer with token lifecycle, dashboard integration, and low-stock UI.
 
 ## Key Implementation Decisions
 
-- **Stack**: Vite + React 19, React Router 7, Axios.
-- **Location**: `frontend/` directory alongside the existing Django backend.
-- **API integration**: Axios client with JWT bearer auth, automatic token refresh on 401, and shared error extraction.
-- **Token storage**: `localStorage` keys `inventory_access_token` / `inventory_refresh_token`. See `frontend/SECURITY.md` for the XSS trade-off, mitigations, and recommended production hardening (httpOnly cookies or strict CSP).
-- **Session expiry**: Invalid/missing refresh tokens clear storage, emit `inventory:session-expired`, and `SessionGuard` redirects to `/login` without retrying the failed request.
-- **Token refresh concurrency**: `acquireAccessTokenRefresh()` in `frontend/src/api/client.js` uses a shared in-flight promise so simultaneous 401 responses trigger only one refresh request.
-- **Input handling**: All form text is sanitized before submit (`frontend/src/utils/sanitize.js`). UI renders values via JSX only (no `dangerouslySetInnerHTML`).
-- **Authorization model**: Backend enforces `IsAdminUser` on all inventory API endpoints (`inventory/views.py`). This is a single-admin system; authenticated admins are intended to access the full dataset. Client-side filtering is a performance/UI concern, not row-level access control.
-- **Dev proxy**: Vite proxies `/api` to `http://127.0.0.1:8000` so no backend CORS changes were required for local development.
-- **Dashboard stats**: Computed client-side from `/api/products/` and `/api/transactions/` (no dedicated dashboard endpoint in backend).
-- **Filtering**: Product and transaction filters run client-side because the backend ViewSets do not expose query filters.
-- **Stock editing**: `stock_quantity` is read-only in product forms; the edit modal shows current stock as disabled with guidance to use Inventory Transactions.
-- **Stock status**: `out` (0 stock), `low` (≤ minimum threshold), `in_stock` otherwise.
-- **UI**: Custom CSS admin shell with sidebar navigation, modal forms, toast notifications, and responsive breakpoints for tablet/desktop.
+- **Auth endpoints**: `/api/auth/login/`, `/api/auth/logout/` (requires authentication), and `/api/auth/refresh/`. Legacy `/api/auth/token/` paths remain for backward compatibility.
+- **Logout security trade-off**: No server-side JWT blacklist — stolen refresh tokens remain valid until expiry. Documented in `inventory/auth_views.py`; mitigations are short refresh lifetimes and future httpOnly cookies/blacklist.
+- **Dashboard stats**: `GET /api/dashboard/stats/` returns `total_products`, `low_stock_count`, `total_stock_value`, and `recent_transactions`.
+- **Low stock**: `GET /api/products/low-stock/` returns products at or below their minimum threshold.
+- **Stock integrity**: DB `CheckConstraint`, serializer validation, and `validate_transaction_change()` in `inventory/services.py` (StockError → 400 via serializer). No model `save()` validation (avoids uncaught Django ValidationError → 500).
+- **Error responses**: Custom DRF exception handler returns `{"error", "details"}`; unhandled exceptions propagate when `DEBUG=True`, generic 500 only in production.
+- **CORS**: `config/cors.py` validates each origin against a localhost/127.0.0.1 whitelist pattern — untrusted env values like `http://evil.com` are rejected.
+- **Frontend API layer**: All HTTP calls in `frontend/src/services/api.js`; token helpers in `frontend/src/utils/auth.js`; session events in `frontend/src/utils/session.js`. Removed thin `frontend/src/api/*` re-export modules.
+- **Token lifecycle**: On mount, decode JWT `exp` and refresh only when access token is expired; 401 responses trigger refresh via axios interceptor.
+- **Dashboard polling**: Configurable via `VITE_DASHBOARD_POLL_MS` (default 60s); pauses when browser tab is hidden.
+
+## PR Review Fixes (same branch)
+
+| Review item | Resolution |
+|-------------|------------|
+| CORS env injection | Whitelist validation in `config/cors.py` |
+| Product.save() ValidationError → 500 | Removed; rely on constraint + serializer + service layer |
+| Negative stock on OUT transactions | Explicit `StockError` → `ValidationError` in serializer; service + API tests |
+| Exception handler masks DEBUG errors | Returns `None` when `DEBUG=True` for unhandled exceptions |
+| Logout AllowAny | Changed to `IsAuthenticated` + security docstring |
+| refreshAccessToken response validation | Throws if `access` missing |
+| AuthContext unnecessary refresh | JWT `exp` check before refresh |
+| Dashboard polling | Configurable interval + visibility pause + unmount cleanup tests |
+| api/* re-exports | Removed; imports use `services/api.js` directly |
+| Missing tests | CORS config/preflight, structured errors, oversell prevention, service-layer stock validation, refresh flow, polling timers |
 
 ## Files Changed
 
 | File / Area | Purpose |
 |-------------|---------|
-| `frontend/package.json` | Dependencies and scripts (`dev`, `build`, `test`) |
-| `frontend/vite.config.js` | React plugin, API proxy, Vitest config |
-| `frontend/SECURITY.md` | Security trade-offs, authorization notes, hardening guidance |
-| `frontend/src/api/client.js` | HTTP client, refresh lock, session failure handling |
-| `frontend/src/api/session.js` | Session-expired event helper |
-| `frontend/src/api/*` | Auth, resource API modules |
-| `frontend/src/context/*` | Auth and notification providers |
-| `frontend/src/components/*` | Layout, protected route, session guard, modal, loading |
-| `frontend/src/pages/*` | Login, Dashboard, Products, Categories, Transactions |
-| `frontend/src/utils/*` | Sanitization, validation, stock status, filters, formatters |
-| `frontend/src/test/*` | Vitest unit/component tests |
-| `frontend/src/index.css` | Admin dashboard styles |
-| `.gitignore` | Node modules and frontend build artifacts |
+| `config/cors.py` | Validated CORS origin parsing |
+| `config/settings.py` | Uses validated CORS origins |
+| `inventory/models.py` | CheckConstraint only (no save() validation) |
+| `inventory/serializers.py` | StockError wrapping in transaction validate() |
+| `inventory/views.py` | Dashboard stats, low-stock action |
+| `inventory/exceptions.py` | Structured errors; DEBUG propagation |
+| `inventory/auth_views.py` | Auth views with logout security notes |
+| `inventory/tests.py` | Expanded coverage per review |
+| `frontend/src/services/api.js` | Centralized client + refresh validation |
+| `frontend/src/utils/auth.js` | Token storage + JWT expiry helpers |
+| `frontend/src/utils/session.js` | Session-expired event helper |
+| `frontend/src/pages/*` | Direct imports from services/api |
+| `frontend/src/test/*` | Updated mocks + polling/expiry tests |
+
+## API Contract (Frontend ↔ Backend)
+
+| Endpoint | Method | Auth | Notes |
+|----------|--------|------|-------|
+| `/api/auth/login/` | POST | No | `{username, password}` → `{access, refresh}` |
+| `/api/auth/logout/` | POST | Bearer | Acknowledges client logout (no token invalidation) |
+| `/api/auth/refresh/` | POST | No | `{refresh}` → `{access}` |
+| `/api/dashboard/stats/` | GET | Bearer | Aggregated dashboard payload |
+| `/api/products/low-stock/` | GET | Bearer | Products at/below threshold |
+
+Errors: `{"error": "message", "details": {}}`. Dates: ISO 8601.
 
 ## Running Locally
 
-Backend (terminal 1):
-
 ```bash
 pip install -r requirements.txt
-DEBUG=True SECRET_KEY=your-dev-key python manage.py migrate
-DEBUG=True SECRET_KEY=your-dev-key python manage.py setup_admin
-DEBUG=True SECRET_KEY=your-dev-key python manage.py runserver
+DEBUG=True SECRET_KEY=your-dev-key python3 manage.py migrate
+DEBUG=True SECRET_KEY=your-dev-key python3 manage.py setup_admin
+DEBUG=True SECRET_KEY=your-dev-key python3 manage.py runserver
+
+cd frontend && npm install && npm run dev
 ```
-
-Frontend (terminal 2):
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open `http://localhost:5173` and sign in with `admin` / `admin123`.
 
 ## Tests
 
 ```bash
-cd frontend && npm test
-python3 manage.py test inventory
+DEBUG=True SECRET_KEY=test-key python3 manage.py test inventory  # 27 tests
+cd frontend && npm test && npm run build                           # 36 tests
 ```
-
-Frontend tests cover: auth token storage/logout, session expiry events, token refresh locking and failure handling, input sanitization, form validation, protected-route redirect, login validation/session-expired UI, dashboard stat utilities, and API error parsing.
 
 ## Assumptions
 
-- Admin credentials come from `python manage.py setup_admin` (default `admin` / `admin123`).
-- Production API base URL is configured via `VITE_API_URL` (see `frontend/.env.example`).
-- Product stock is read-only in the UI; changes go through inventory transactions per backend rules.
-- No server-side JWT blacklist endpoint exists; logout is client-side token removal.
+- `frontend/package.json` name/version (`inventory-frontend` / `1.0.0`) predates task #2 — already on `main` from task #1.
+- CORS whitelist is limited to localhost origins; production cross-origin deployment needs an explicit follow-up to extend the pattern safely.
+- Concurrent DB-level locking for stock is not implemented; oversell prevention is enforced at serializer/service validation before save.
 
 ## Open Questions / Follow-ups
 
-- **Security (preferred):** Move JWT storage to httpOnly cookies (requires backend changes).
-- **Performance:** Add `/api/dashboard/` for aggregated stats instead of client-side aggregation over full lists.
-- **Performance:** Add server-side query filters (`django-filter` / DRF `filter_backends`) for products and transactions.
-- Production deployment may need `django-cors-headers` if frontend and API are served from different origins without a reverse proxy.
-- Deploy with a strict Content Security Policy (see `frontend/SECURITY.md`).
+- JWT blacklist or httpOnly cookies for true server-side logout.
+- Extend CORS whitelist for known production frontend domains (HTTPS-only).
+- Server-side query filters/pagination for products and transactions.

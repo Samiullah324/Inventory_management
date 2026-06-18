@@ -6,14 +6,20 @@ import { AuthProvider } from '../context/AuthContext'
 import { NotificationProvider } from '../context/NotificationContext'
 import Login from '../pages/Login'
 
-vi.mock('../api/auth', () => ({
+vi.mock('../utils/auth', () => ({
   isAuthenticated: () => false,
-  login: vi.fn(),
-  logout: vi.fn(),
+  isSessionValid: () => false,
+  isAccessTokenExpired: () => true,
   clearTokens: vi.fn(),
   getAccessToken: () => null,
   getRefreshToken: () => null,
   setTokens: vi.fn(),
+}))
+
+vi.mock('../services/api', () => ({
+  login: vi.fn(),
+  logout: vi.fn(),
+  refreshToken: vi.fn(),
 }))
 
 function renderLogin() {

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { extractErrorMessage } from '../api/client'
-import { fetchCategories } from '../api/categories'
 import {
   createProduct,
   deleteProduct,
-  fetchProducts,
+  extractErrorMessage,
+  getCategories,
+  getLowStock,
+  getProducts,
   updateProduct,
-} from '../api/products'
+} from '../services/api'
 import ConfirmDialog from '../components/ConfirmDialog'
 import LoadingSpinner from '../components/LoadingSpinner'
 import Modal from '../components/Modal'
@@ -29,6 +30,7 @@ export default function Products() {
   const { notify } = useNotification()
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState([])
+  const [lowStockIds, setLowStockIds] = useState(new Set())
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -46,12 +48,14 @@ export default function Products() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [productData, categoryData] = await Promise.all([
+      const [productData, categoryData, lowStockData] = await Promise.all([
         fetchProducts(),
-        fetchCategories(),
+        getCategories(),
+        getLowStock(),
       ])
       setProducts(productData)
       setCategories(categoryData)
+      setLowStockIds(new Set(lowStockData.map((product) => product.id)))
     } catch (error) {
       notify(extractErrorMessage(error), 'error')
     } finally {
@@ -221,13 +225,16 @@ export default function Products() {
               <tbody>
                 {filteredProducts.map((product) => {
                   const status = getStockStatus(product)
+                  const isLowStock = lowStockIds.has(product.id)
                   return (
-                    <tr key={product.id}>
+                    <tr key={product.id} className={isLowStock ? 'row--low-stock' : undefined}>
                       <td>{product.name}</td>
                       <td>{product.sku}</td>
                       <td>{product.category_name}</td>
                       <td>{formatCurrency(product.unit_price)}</td>
-                      <td>{product.stock_quantity}</td>
+                      <td className={isLowStock ? 'text--danger' : undefined}>
+                        {product.stock_quantity}
+                      </td>
                       <td>
                         <span className={`badge badge--${status}`}>
                           {getStockStatusLabel(status)}

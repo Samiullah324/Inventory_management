@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { extractErrorMessage } from '../api/client'
+import { extractErrorMessage } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useNotification } from '../context/NotificationContext'
 import { sanitizeText } from '../utils/sanitize'

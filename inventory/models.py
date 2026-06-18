@@ -30,6 +30,12 @@ class Product(models.Model):
 
     class Meta:
         ordering = ['name']
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(stock_quantity__gte=0),
+                name='product_stock_non_negative',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.name} ({self.sku})'

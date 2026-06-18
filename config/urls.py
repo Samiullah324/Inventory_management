@@ -3,8 +3,13 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from inventory.auth_views import LoginView, LogoutView, RefreshTokenView
+
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/auth/login/', LoginView.as_view(), name='auth_login'),
+    path('api/auth/logout/', LogoutView.as_view(), name='auth_logout'),
+    path('api/auth/refresh/', RefreshTokenView.as_view(), name='auth_refresh'),
     path('api/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/', include('inventory.urls')),

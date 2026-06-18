@@ -1,18 +1,43 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
-import { isAuthenticated as checkAuth, login as apiLogin, logout as apiLogout } from '../api/auth'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { isAuthenticated as checkAuth, isSessionValid } from '../utils/auth'
+import { login as apiLogin, logout as apiLogout, refreshToken } from '../services/api'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [authenticated, setAuthenticated] = useState(checkAuth)
 
+  useEffect(() => {
+    let active = true
+
+    async function validateSession() {
+      if (!checkAuth()) return
+      if (isSessionValid()) {
+        if (active) setAuthenticated(true)
+        return
+      }
+      try {
+        await refreshToken()
+        if (active) setAuthenticated(true)
+      } catch {
+        await apiLogout()
+        if (active) setAuthenticated(false)
+      }
+    }
+
+    validateSession()
+    return () => {
+      active = false
+    }
+  }, [])
+
   const login = useCallback(async (username, password) => {
     await apiLogin(username, password)
     setAuthenticated(true)
   }, [])
 
-  const logout = useCallback(() => {
-    apiLogout()
+  const logout = useCallback(async () => {
+    await apiLogout()
     setAuthenticated(false)
   }, [])
 

@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
-import { extractErrorMessage } from '../api/client'
 import {
   createCategory,
   deleteCategory,
-  fetchCategories,
+  extractErrorMessage,
+  getCategories,
   updateCategory,
-} from '../api/categories'
+} from '../services/api'
 import ConfirmDialog from '../components/ConfirmDialog'
 import LoadingSpinner from '../components/LoadingSpinner'
 import Modal from '../components/Modal'
@@ -29,7 +29,7 @@ export default function Categories() {
   const loadData = async () => {
     setLoading(true)
     try {
-      setCategories(await fetchCategories())
+      setCategories(await getCategories())
     } catch (error) {
       notify(extractErrorMessage(error), 'error')
     } finally {

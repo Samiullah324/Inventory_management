@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { SESSION_EXPIRED_EVENT } from '../api/session'
+import { SESSION_EXPIRED_EVENT } from '../utils/session'
 import { useAuth } from '../context/AuthContext'
 
 export default function SessionGuard() {
