@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.db.models.deletion import ProtectedError
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -259,3 +260,62 @@ class InventoryTransactionAPITests(AuthenticatedAPITestCase):
         )
         self.product.refresh_from_db()
         self.assertEqual(self.product.stock_quantity, 7)
+
+
+class DashboardAPITests(AuthenticatedAPITestCase):
+    def test_dashboard_stats_aggregation(self):
+        Product.objects.create(
+            name='Low Stock Item',
+            sku='LOW-001',
+            category=self.category,
+            unit_price=Decimal('10.00'),
+            stock_quantity=2,
+            minimum_stock_threshold=5,
+        )
+        product = Product.objects.create(
+            name='Healthy Item',
+            sku='OK-001',
+            category=self.category,
+            unit_price=Decimal('20.00'),
+            stock_quantity=10,
+            minimum_stock_threshold=3,
+        )
+        InventoryTransaction.objects.create(
+            product=product,
+            transaction_type=InventoryTransaction.TransactionType.IN,
+            quantity=10,
+            notes='Restock',
+        )
+
+        response = self.client.get('/api/dashboard/stats/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['total_products'], 2)
+        self.assertEqual(response.data['total_categories'], 1)
+        self.assertEqual(response.data['total_stock_units'], 12)
+        self.assertEqual(len(response.data['low_stock_products']), 1)
+        self.assertEqual(response.data['low_stock_products'][0]['sku'], 'LOW-001')
+        self.assertEqual(len(response.data['recent_transactions']), 1)
+
+
+class CategoryProductRelationshipTests(AuthenticatedAPITestCase):
+    def test_category_lists_related_products(self):
+        Product.objects.create(
+            name='Cable',
+            sku='CAB-001',
+            category=self.category,
+            unit_price=Decimal('5.00'),
+        )
+        response = self.client.get('/api/products/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data[0]['category'], self.category.id)
+        self.assertEqual(response.data[0]['category_name'], self.category.name)
+
+    def test_category_with_products_cannot_be_deleted(self):
+        Product.objects.create(
+            name='Cable',
+            sku='CAB-001',
+            category=self.category,
+            unit_price=Decimal('5.00'),
+        )
+        with self.assertRaises(ProtectedError):
+            self.category.delete()

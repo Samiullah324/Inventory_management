@@ -94,3 +94,4 @@ class InventoryTransactionSerializer(serializers.ModelSerializer):
         instance.save()
         sync_product_stock(instance.product)
         return instance
+

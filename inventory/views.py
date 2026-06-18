@@ -1,7 +1,10 @@
-from django.db import transaction as db_transaction
+from django.db import models, transaction as db_transaction
+from django.db.models import Sum
 from rest_framework import viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAdminUser
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .models import Category, InventoryTransaction, Product
 from .serializers import (
@@ -40,3 +43,29 @@ class InventoryTransactionViewSet(AdminOnlyViewSet):
         with db_transaction.atomic():
             instance.delete()
             sync_product_stock(product)
+
+
+class DashboardStatsView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        products = Product.objects.select_related('category').all()
+        low_stock_products = products.filter(
+            stock_quantity__lte=models.F('minimum_stock_threshold'),
+        ).order_by('stock_quantity', 'name')
+        recent_transactions = InventoryTransaction.objects.select_related(
+            'product',
+        ).order_by('-timestamp', '-id')[:10]
+        total_stock_units = products.aggregate(total=Sum('stock_quantity'))['total'] or 0
+
+        data = {
+            'total_products': products.count(),
+            'total_categories': Category.objects.count(),
+            'total_stock_units': total_stock_units,
+            'low_stock_products': ProductSerializer(low_stock_products, many=True).data,
+            'recent_transactions': InventoryTransactionSerializer(
+                recent_transactions,
+                many=True,
+            ).data,
+        }
+        return Response(data)

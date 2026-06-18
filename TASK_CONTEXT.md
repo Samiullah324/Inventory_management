@@ -1,60 +1,45 @@
-# Task #1: Backend Setup (Django) – Inventory Management Core API
+# Task #2: Integration & System Enhancement
 
 ## Scope
 
-Single-admin Inventory Management backend using Django and Django REST Framework with JWT authentication, database models, CRUD APIs, and stock management business logic.
+Connect the React frontend to the Django REST API, verify inventory business logic end-to-end, integrate dashboard statistics, add error handling and form validation, and cover the integration with automated tests.
 
 ## Key Implementation Decisions
 
-- **Project layout**: Django project `config`, app `inventory`.
-- **Authentication**: JWT via `djangorestframework-simplejwt`. All API endpoints require `IsAdminUser` (staff/superuser). Token endpoints at `/api/auth/token/` and `/api/auth/token/refresh/`.
-- **Admin setup**: Management command `python manage.py setup_admin` creates/updates a single superuser (defaults: `admin` / `admin123`).
-- **Stock logic** (`inventory/services.py`):
-  - `IN`: adds quantity to stock.
-  - `OUT`: subtracts quantity; validation prevents negative stock.
-  - `ADJUST`: sets stock to the given quantity (absolute correction).
-  - Stock is recalculated by replaying transactions chronologically on update/delete.
-  - `validate_transaction_deletion()` dry-runs replay before delete to prevent data inconsistency.
-  - `validate_transaction_change()` assigns a realistic timestamp to provisional transactions and re-sorts before replay.
-- **SKU validation**: Case-insensitive uniqueness enforced in `ProductSerializer`.
-- **API docs**: Swagger UI at `/api/docs/` via `drf-spectacular`.
-- **Database**: SQLite for development (default Django setup).
-- **Security defaults** (`config/settings.py`):
-  - `DEBUG` defaults to `False`; set `DEBUG=True` explicitly for local development.
-  - `SECRET_KEY` is required unless `DEBUG=True` (or running tests).
-  - `ALLOWED_HOSTS` defaults to `localhost,127.0.0.1`.
+- **Frontend stack**: Vite + React + React Router in `frontend/`. Dev server proxies `/api` to Django on port 8000.
+- **Centralized API layer** (`frontend/src/api/`):
+  - `client.js` — shared `fetch` wrapper with JWT injection, 401 refresh retry, and session-expired logout event.
+  - `auth.js` — access/refresh token storage in `localStorage`.
+  - `services.js` — resource-specific API methods for dashboard, categories, products, and transactions.
+- **Authentication lifecycle**: Login stores JWT pair; protected routes require a valid access token; expired access tokens are refreshed once via `/api/auth/token/refresh/`; failed refresh clears tokens and redirects to login.
+- **Dashboard API** (`GET /api/dashboard/stats/`): Aggregates total products, categories, stock units, low-stock products (`stock_quantity <= minimum_stock_threshold`), and the 10 most recent transactions.
+- **CORS**: `django-cors-headers` enabled for `http://localhost:5173` and `http://127.0.0.1:5173` (configurable via `CORS_ALLOWED_ORIGINS`).
+- **Inventory logic**: Reuses existing backend stock replay/validation in `inventory/services.py`. Frontend surfaces API validation errors (negative stock, duplicate SKU, protected category deletes) via alert components.
+- **Form validation**: Client-side checks for required fields and numeric constraints mirror backend serializer rules; server responses remain authoritative.
+- **Testing**:
+  - Backend: existing stock/auth CRUD tests plus dashboard aggregation and category-product relationship tests.
+  - Frontend: Vitest unit tests for auth token helpers, API error formatting, and validation utilities.
 
 ## Files Changed
 
 | File | Purpose |
 |------|---------|
-| `requirements.txt` | Django, DRF, SimpleJWT, drf-spectacular, python-decouple |
-| `config/settings.py` | DRF, JWT, spectacular, secure defaults |
-| `config/urls.py` | Auth, API, schema, and Swagger routes |
-| `inventory/models.py` | Category, Product, InventoryTransaction models |
-| `inventory/serializers.py` | DRF serializers with validation |
-| `inventory/services.py` | Stock calculation, validation, and replay logic |
-| `inventory/views.py` | Admin-protected ViewSets with safe delete |
-| `inventory/urls.py` | Router for categories, products, transactions |
-| `inventory/admin.py` | Django admin registration |
-| `inventory/management/commands/setup_admin.py` | Single admin user bootstrap |
-| `inventory/tests.py` | Auth, CRUD, stock, update, and delete validation tests |
-| `inventory/migrations/0001_initial.py` | Initial schema migration |
-| `.gitignore` | Python/Django ignores |
+| `requirements.txt` | Added `django-cors-headers` |
+| `config/settings.py` | CORS middleware and allowed origins |
+| `inventory/views.py` | `DashboardStatsView` for aggregated inventory stats |
+| `inventory/urls.py` | Dashboard stats route |
+| `inventory/tests.py` | Dashboard and category-product relationship tests |
+| `.gitignore` | Ignore `node_modules/` and `frontend/dist/` |
+| `frontend/` | React admin UI, API client, pages, styles, and Vitest tests |
+| `TASK_CONTEXT.md` | This document |
 
-## API Endpoints
+## API Endpoints (new)
 
-- `POST /api/auth/token/` — obtain JWT access/refresh tokens
-- `POST /api/auth/token/refresh/` — refresh access token
-- `GET/POST /api/categories/` — list/create categories
-- `GET/PUT/PATCH/DELETE /api/categories/{id}/` — category detail
-- `GET/POST /api/products/` — list/create products
-- `GET/PUT/PATCH/DELETE /api/products/{id}/` — product detail
-- `GET/POST /api/transactions/` — list/create inventory transactions
-- `GET/PUT/PATCH/DELETE /api/transactions/{id}/` — transaction detail
-- `GET /api/docs/` — Swagger UI
+- `GET /api/dashboard/stats/` — dashboard aggregates (admin JWT required)
 
 ## Running Locally
+
+### Backend
 
 ```bash
 pip install -r requirements.txt
@@ -64,14 +49,32 @@ DEBUG=True SECRET_KEY=your-dev-key python manage.py runserver
 python manage.py test inventory
 ```
 
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Sign in with the admin credentials from `setup_admin` (default `admin` / `admin123`).
+
+### Tests
+
+```bash
+python manage.py test inventory
+cd frontend && npm test && npm run build
+```
+
 ## Assumptions
 
-- `ADJUST` transaction type sets stock to an absolute quantity (not a relative delta).
-- Product `stock_quantity` is managed exclusively through inventory transactions (read-only via API).
-- Single admin is a Django superuser created via the setup command.
+- Single admin user model from Task #1 remains unchanged.
+- Frontend runs separately during development; Vite proxies API calls to Django.
+- Dashboard “real-time” stats are fetched on page load and via manual refresh (no WebSockets).
+- Category deletion through the API may fail when products reference the category (`PROTECT`); the UI displays the API error.
 
 ## Open Questions / Follow-ups
 
-- Rate limiting and audit logging are out of scope for this task.
-- **Performance**: `sync_product_stock()` replays all transactions for a product on every create/update/delete (O(n) per operation). This is acceptable for the current scope but will not scale for products with very large transaction histories. A follow-up task could optimize with incremental stock updates or cached running balances.
-- Deleting a transaction that would leave remaining transactions invalid (e.g. deleting an IN while OUTs exist) returns a 400 validation error and leaves data unchanged.
+- Production deployment would need a combined static-file strategy (e.g. serve `frontend/dist` from Django or a reverse proxy).
+- Category delete could return a clearer 400 response instead of a protected-relation server error.
+- Optional enhancements: pagination on list views, optimistic UI updates, and Playwright/Cypress E2E tests.
