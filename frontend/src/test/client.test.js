@@ -19,4 +19,12 @@ describe('extractErrorMessage', () => {
       'sku: A product with this SKU already exists.',
     )
   })
+
+  it('returns error message from structured API responses', () => {
+    const error = {
+      response: { data: { error: 'Validation failed', details: { name: ['Required'] } } },
+      message: 'Request failed',
+    }
+    expect(extractErrorMessage(error)).toBe('Validation failed')
+  })
 })

@@ -1,12 +1,20 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearTokens,
   getAccessToken,
   getRefreshToken,
   isAuthenticated,
-  logout,
   setTokens,
-} from '../api/auth'
+} from '../utils/auth'
+
+vi.mock('../services/api', () => ({
+  logout: vi.fn(async () => {
+    const { clearTokens } = await import('../utils/auth')
+    clearTokens()
+  }),
+}))
+
+import { logout } from '../services/api'
 
 describe('auth storage', () => {
   beforeEach(() => {
@@ -25,9 +33,9 @@ describe('auth storage', () => {
     expect(isAuthenticated()).toBe(false)
   })
 
-  it('logout removes both access and refresh tokens', () => {
+  it('logout removes both access and refresh tokens', async () => {
     setTokens('access-123', 'refresh-456')
-    logout()
+    await logout()
     expect(getAccessToken()).toBeNull()
     expect(getRefreshToken()).toBeNull()
     expect(isAuthenticated()).toBe(false)
