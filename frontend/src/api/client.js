@@ -1,3 +1,9 @@
+/**
+ * Centralized API client for Django REST Framework.
+ *
+ * Authentication: JWT bearer tokens only (Authorization header). No session cookies are used,
+ * so CSRF protection does not apply to these requests.
+ */
 import {
   clearTokens,
   getAccessToken,
@@ -8,6 +14,10 @@ import {
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
 let refreshPromise = null
+
+function isAuthPath(path) {
+  return path.includes('/api/auth/token/')
+}
 
 async function refreshAccessToken() {
   const refresh = getRefreshToken()
@@ -26,7 +36,7 @@ async function refreshAccessToken() {
     throw new Error('Session expired')
   }
 
-  const data = await response.json()
+  const data = await parseResponse(response)
   setTokens({ access: data.access, refresh })
   return data.access
 }
@@ -47,17 +57,41 @@ async function parseResponse(response) {
   try {
     return JSON.parse(text)
   } catch {
-    return { detail: text }
+    return { detail: 'Unexpected server response.' }
   }
 }
 
-export async function apiRequest(path, options = {}, retry = true) {
+function sanitizeClientError(data, status) {
+  if (!data || typeof data !== 'object') {
+    return { detail: 'Request failed.' }
+  }
+
+  if (data.detail) {
+    return { detail: data.detail }
+  }
+
+  const fieldErrors = {}
+  for (const [field, value] of Object.entries(data)) {
+    if (field === 'access' || field === 'refresh' || field === 'password') {
+      continue
+    }
+    fieldErrors[field] = value
+  }
+
+  if (Object.keys(fieldErrors).length > 0) {
+    return fieldErrors
+  }
+
+  return { detail: `Request failed with status ${status}.` }
+}
+
+export async function apiRequest(path, options = {}, allowRefreshRetry = true) {
   const headers = {
-  ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
     ...(options.headers || {}),
   }
 
-  if (!path.includes('/api/auth/token/')) {
+  if (!isAuthPath(path)) {
     const token = await getValidAccessToken()
     headers.Authorization = `Bearer ${token}`
   }
@@ -67,7 +101,12 @@ export async function apiRequest(path, options = {}, retry = true) {
     headers,
   })
 
-  if (response.status === 401 && retry && !path.includes('/api/auth/token/')) {
+  if (
+    response.status === 401
+    && allowRefreshRetry
+    && !isAuthPath(path)
+    && getRefreshToken()
+  ) {
     if (!refreshPromise) {
       refreshPromise = refreshAccessToken().finally(() => {
         refreshPromise = null
@@ -87,7 +126,7 @@ export async function apiRequest(path, options = {}, retry = true) {
   const data = await parseResponse(response)
 
   if (!response.ok) {
-    throw data || { detail: 'Request failed.' }
+    throw sanitizeClientError(data, response.status)
   }
 
   return data

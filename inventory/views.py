@@ -13,6 +13,7 @@ from .serializers import (
     ProductSerializer,
 )
 from .services import StockError, sync_product_stock, validate_transaction_deletion
+from .throttles import DashboardRateThrottle
 
 
 class AdminOnlyViewSet(viewsets.ModelViewSet):
@@ -47,15 +48,20 @@ class InventoryTransactionViewSet(AdminOnlyViewSet):
 
 class DashboardStatsView(APIView):
     permission_classes = [IsAdminUser]
+    throttle_classes = [DashboardRateThrottle]
+    DEFAULT_TRANSACTION_LIMIT = 10
+    MAX_TRANSACTION_LIMIT = 50
 
     def get(self, request):
         products = Product.objects.select_related('category').all()
         low_stock_products = products.filter(
             stock_quantity__lte=models.F('minimum_stock_threshold'),
         ).order_by('stock_quantity', 'name')
+
+        limit = self._transaction_limit(request)
         recent_transactions = InventoryTransaction.objects.select_related(
             'product',
-        ).order_by('-timestamp', '-id')[:10]
+        ).order_by('-timestamp', '-id')[:limit]
         total_stock_units = products.aggregate(total=Sum('stock_quantity'))['total'] or 0
 
         data = {
@@ -67,5 +73,13 @@ class DashboardStatsView(APIView):
                 recent_transactions,
                 many=True,
             ).data,
+            'recent_transactions_limit': limit,
         }
         return Response(data)
+
+    def _transaction_limit(self, request):
+        try:
+            limit = int(request.query_params.get('limit', self.DEFAULT_TRANSACTION_LIMIT))
+        except (TypeError, ValueError):
+            limit = self.DEFAULT_TRANSACTION_LIMIT
+        return max(1, min(limit, self.MAX_TRANSACTION_LIMIT))

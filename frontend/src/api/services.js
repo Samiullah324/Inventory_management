@@ -1,7 +1,7 @@
 import { apiRequest } from './client'
 
 export const dashboardApi = {
-  getStats: () => apiRequest('/api/dashboard/stats/'),
+  getStats: (limit = 10) => apiRequest(`/api/dashboard/stats/?limit=${limit}`),
 }
 
 export const categoriesApi = {

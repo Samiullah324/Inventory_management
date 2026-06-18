@@ -296,6 +296,62 @@ class DashboardAPITests(AuthenticatedAPITestCase):
         self.assertEqual(response.data['low_stock_products'][0]['sku'], 'LOW-001')
         self.assertEqual(len(response.data['recent_transactions']), 1)
 
+    def test_dashboard_empty_state_returns_zero_defaults(self):
+        InventoryTransaction.objects.all().delete()
+        Product.objects.all().delete()
+        Category.objects.all().delete()
+
+        response = self.client.get('/api/dashboard/stats/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['total_products'], 0)
+        self.assertEqual(response.data['total_categories'], 0)
+        self.assertEqual(response.data['total_stock_units'], 0)
+        self.assertEqual(response.data['low_stock_products'], [])
+        self.assertEqual(response.data['recent_transactions'], [])
+        self.assertEqual(response.data['recent_transactions_limit'], 10)
+
+    def test_dashboard_respects_transaction_limit_query_param(self):
+        product = Product.objects.create(
+            name='Widget',
+            sku='WID-001',
+            category=self.category,
+            unit_price=Decimal('5.00'),
+        )
+        for index in range(15):
+            InventoryTransaction.objects.create(
+                product=product,
+                transaction_type=InventoryTransaction.TransactionType.IN,
+                quantity=1,
+                notes=f'Batch {index}',
+            )
+
+        response = self.client.get('/api/dashboard/stats/?limit=5')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['recent_transactions']), 5)
+        self.assertEqual(response.data['recent_transactions_limit'], 5)
+
+
+class CorsConfigurationTests(APITestCase):
+    def setUp(self):
+        User.objects.create_superuser(username='admin', password='admin123')
+        token_response = self.client.post(
+            reverse('token_obtain_pair'),
+            {'username': 'admin', 'password': 'admin123'},
+            format='json',
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token_response.data["access"]}')
+
+    def test_cors_allows_configured_frontend_origin(self):
+        response = self.client.get(
+            '/api/categories/',
+            HTTP_ORIGIN='http://localhost:5173',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response['Access-Control-Allow-Origin'],
+            'http://localhost:5173',
+        )
+
 
 class CategoryProductRelationshipTests(AuthenticatedAPITestCase):
     def test_category_lists_related_products(self):

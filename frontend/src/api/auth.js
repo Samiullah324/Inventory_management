@@ -1,3 +1,12 @@
+/**
+ * JWT token storage for the admin SPA.
+ *
+ * Security notes:
+ * - The API uses JWT bearer auth only (no session cookies), so CSRF tokens are not required.
+ * - Tokens are stored in localStorage for persistence across reloads. This is acceptable for
+ *   a trusted admin-only SPA but is vulnerable to XSS; avoid rendering untrusted HTML and
+ *   keep dependencies patched in production.
+ */
 const ACCESS_TOKEN_KEY = 'inventory_access_token'
 const REFRESH_TOKEN_KEY = 'inventory_refresh_token'
 
