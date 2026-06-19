@@ -6,7 +6,8 @@ from django.db.models.functions import Coalesce
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAdminUser
+from django.db import connection
+from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -106,3 +107,25 @@ class DashboardStatsView(APIView):
                 {'error': 'Failed to load dashboard stats.', 'details': {'message': str(exc)}},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class HealthCheckView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        try:
+            connection.ensure_connection()
+            database_status = 'up'
+            http_status = status.HTTP_200_OK
+        except Exception:
+            database_status = 'down'
+            http_status = status.HTTP_503_SERVICE_UNAVAILABLE
+
+        return Response(
+            {
+                'status': 'ok' if database_status == 'up' else 'unhealthy',
+                'database': database_status,
+            },
+            status=http_status,
+        )
