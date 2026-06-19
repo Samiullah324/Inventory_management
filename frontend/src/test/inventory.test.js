@@ -4,6 +4,7 @@ import {
   filterProducts,
   filterTransactions,
   getStockStatus,
+  isLowStock,
 } from '../utils/inventory'
 
 describe('inventory utils', () => {
@@ -47,6 +48,8 @@ describe('inventory utils', () => {
     expect(getStockStatus(products[0])).toBe('out')
     expect(getStockStatus(products[1])).toBe('low')
     expect(getStockStatus(products[2])).toBe('in_stock')
+    expect(isLowStock(products[0])).toBe(false)
+    expect(isLowStock(products[1])).toBe(true)
   })
 
   it('filters products by name, sku, category, and stock status', () => {
