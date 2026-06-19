@@ -35,7 +35,8 @@ Systematic audit and bug fixes across the Django REST API backend and React/Vite
 | `inventory/models.py` | Add `(product, timestamp)` index on `InventoryTransaction` |
 | `inventory/migrations/0003_*.py` | Database index for transaction ledger lookups |
 | `inventory/views.py` | Aligned low-stock filter; category delete protection; removed leaky exception handlers, no-op mixin, and duplicate imports |
-| `inventory/auth_views.py` | Admin-only JWT login serializer |
+| `frontend/src/services/api.js` | Remove unused `getLowStock()` after dashboard simplification |
+| `inventory/auth_views.py` | Admin-only JWT login serializer; structured logging for rejected logins |
 | `inventory/admin.py` | `stock_quantity` read-only in Django admin |
 | `inventory/management/commands/setup_admin.py` | Safer password handling for non-dev environments |
 | `inventory/tests.py` | Tests for admin login rejection, out-of-stock exclusion, category delete |
@@ -68,6 +69,7 @@ Systematic audit and bug fixes across the Django REST API backend and React/Vite
 
 ## PR Review Follow-up (same branch)
 
+### Round 1
 - Removed duplicate imports in `inventory/views.py` (kept `connection` and `AllowAny` — used by `HealthCheckView`).
 - Added `_lock_product()` with `Product` instance or pk resolution; docstrings on atomic helpers.
 - Renamed service parameters to `product_instance` / `transaction_instance`; serializer maps `product` explicitly.
@@ -75,13 +77,22 @@ Systematic audit and bug fixes across the Django REST API backend and React/Vite
 - Added `fetchProducts` regression test in `Products.test.jsx`.
 - Added `InventoryTransaction` index migration for ledger replay queries.
 
+### Round 2
+- Documented transaction isolation in create/update service docstrings (`select_for_update` blocks concurrent writers).
+- Documented `sync_product_stock()` usage in `perform_destroy`; removed unused serializer import.
+- Removed unused `getLowStock()` from `frontend/src/services/api.js`.
+- Added structured logging for rejected non-admin login attempts in `auth_views.py`.
+- Expanded `low_stock_queryset()` docstring with business rule.
+- Added concurrency test for racing OUT transactions; timezone tests for `getLocalDateString()`.
+- Added maintainer comment on `test_non_admin_user_is_rejected` (401 at login vs 403 at API).
+
 ## Testing Performed
 
 ```bash
-# Backend (32 tests)
+# Backend (33 tests)
 DEBUG=True SECRET_KEY=test-key python3 manage.py test inventory
 
-# Frontend (38 tests)
+# Frontend (41 tests)
 cd frontend && npm test -- --run
 
 # Frontend build

@@ -6,7 +6,6 @@ from .models import Category, InventoryTransaction, Product
 from .services import (
     StockError,
     create_inventory_transaction,
-    sync_product_stock,
     update_inventory_transaction,
     validate_transaction_change,
 )

@@ -1,3 +1,6 @@
+import logging
+from datetime import datetime, timezone
+
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import IsAuthenticated
@@ -6,11 +9,21 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+logger = logging.getLogger(__name__)
+
 
 class AdminTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
         if not self.user.is_staff:
+            logger.warning(
+                'Non-admin login attempt rejected',
+                extra={
+                    'username': self.user.get_username(),
+                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                    'event': 'auth_failed_not_admin',
+                },
+            )
             raise AuthenticationFailed(
                 'Only admin users can access this application.',
                 code='not_admin',

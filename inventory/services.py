@@ -7,7 +7,12 @@ from .models import InventoryTransaction, Product
 
 
 def low_stock_queryset(queryset=None):
-    """Products with stock above zero but at or below the minimum threshold."""
+    """Return products that are low stock but not out of stock.
+
+    Business rule: ``stock_quantity > 0`` AND
+    ``stock_quantity <= minimum_stock_threshold``. Zero-stock items are
+    excluded because they are tracked separately as out-of-stock.
+    """
     qs = queryset if queryset is not None else Product.objects.all()
     return qs.filter(
         stock_quantity__gt=0,
@@ -88,7 +93,10 @@ def create_inventory_transaction(product_instance, transaction_type, quantity, n
     """Create a transaction and replay stock under a single atomic lock.
 
     Runs inside ``transaction.atomic()`` and acquires ``select_for_update()`` on
-    the product row before validation, insert, and stock replay.
+    the product row before validation, insert, and stock replay. Concurrent
+    writers for the same product block on the row lock until this transaction
+    commits, so no other inventory transaction can be inserted between the lock
+    and the stock replay.
 
     Args:
         product_instance: Product model instance (as provided by DRF FK validation).
@@ -119,7 +127,9 @@ def update_inventory_transaction(transaction_instance, **updates):
     """Update a transaction and replay stock under a single atomic lock.
 
     Runs inside ``transaction.atomic()`` and acquires ``select_for_update()`` on
-    the related product row before validation, save, and stock replay.
+    the related product row before validation, save, and stock replay. Concurrent
+    writers for the same product block on the row lock until this transaction
+    commits, preventing interleaved inserts during replay.
 
     Args:
         transaction_instance: Existing InventoryTransaction model instance.
@@ -148,6 +158,10 @@ def update_inventory_transaction(transaction_instance, **updates):
 
 @transaction.atomic
 def sync_product_stock(product, exclude_transaction_id=None):
+    """Replay the transaction ledger and persist derived stock on a product.
+
+    Used after transaction deletion in ``InventoryTransactionViewSet.perform_destroy``.
+    """
     product = _lock_product(product)
     transactions = _ordered_transactions(product, exclude_transaction_id)
     product.stock_quantity = _replay_transactions(product, transactions)
