@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { extractErrorMessage, getDashboardStats, getLowStock } from '../services/api'
+import { extractErrorMessage, getDashboardStats } from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { useNotification } from '../context/NotificationContext'
 import { DASHBOARD_POLL_MS } from '../utils/auth'
@@ -10,18 +10,13 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [stats, setStats] = useState(null)
-  const [lowStockProducts, setLowStockProducts] = useState([])
 
   const loadDashboard = useCallback(async ({ showLoading = true } = {}) => {
     if (showLoading) setLoading(true)
     setError(null)
     try {
-      const [dashboardStats, lowStock] = await Promise.all([
-        getDashboardStats(),
-        getLowStock(),
-      ])
+      const dashboardStats = await getDashboardStats()
       setStats(dashboardStats)
-      setLowStockProducts(lowStock)
     } catch (err) {
       const message = extractErrorMessage(err)
       setError(message)
@@ -103,9 +98,9 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {lowStockProducts.length > 0 && (
+      {stats.low_stock_count > 0 && (
         <div className="alert alert--warning" role="alert">
-          <strong>{lowStockProducts.length} product(s)</strong> are at or below their minimum
+          <strong>{stats.low_stock_count} product(s)</strong> are at or below their minimum
           stock threshold.
         </div>
       )}

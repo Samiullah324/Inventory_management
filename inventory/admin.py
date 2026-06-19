@@ -14,6 +14,7 @@ class ProductAdmin(admin.ModelAdmin):
     list_display = ['name', 'sku', 'category', 'stock_quantity', 'unit_price']
     list_filter = ['category']
     search_fields = ['name', 'sku']
+    readonly_fields = ['stock_quantity']
 
 
 @admin.register(InventoryTransaction)

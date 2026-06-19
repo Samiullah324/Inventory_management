@@ -4,7 +4,6 @@ import {
   deleteProduct,
   extractErrorMessage,
   getCategories,
-  getLowStock,
   getProducts,
   updateProduct,
 } from '../services/api'
@@ -30,7 +29,6 @@ export default function Products() {
   const { notify } = useNotification()
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState([])
-  const [lowStockIds, setLowStockIds] = useState(new Set())
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -48,14 +46,12 @@ export default function Products() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [productData, categoryData, lowStockData] = await Promise.all([
-        fetchProducts(),
+      const [productData, categoryData] = await Promise.all([
+        getProducts(),
         getCategories(),
-        getLowStock(),
       ])
       setProducts(productData)
       setCategories(categoryData)
-      setLowStockIds(new Set(lowStockData.map((product) => product.id)))
     } catch (error) {
       notify(extractErrorMessage(error), 'error')
     } finally {
@@ -225,7 +221,7 @@ export default function Products() {
               <tbody>
                 {filteredProducts.map((product) => {
                   const status = getStockStatus(product)
-                  const isLowStock = lowStockIds.has(product.id)
+                  const isLowStock = status === 'low'
                   return (
                     <tr key={product.id} className={isLowStock ? 'row--low-stock' : undefined}>
                       <td>{product.name}</td>

@@ -180,11 +180,6 @@ export async function deleteProduct(id) {
   await client.delete(`/products/${id}/`)
 }
 
-export async function getLowStock() {
-  const { data } = await client.get('/products/low-stock/')
-  return data
-}
-
 // Categories
 export async function getCategories() {
   const { data } = await client.get('/categories/')

@@ -13,11 +13,10 @@ vi.mock('../utils/auth', async (importOriginal) => {
 
 vi.mock('../services/api', () => ({
   getDashboardStats: vi.fn(),
-  getLowStock: vi.fn(),
   extractErrorMessage: (error) => error.message || 'Error',
 }))
 
-import { getDashboardStats, getLowStock } from '../services/api'
+import { getDashboardStats } from '../services/api'
 
 function renderDashboard() {
   return render(
@@ -41,7 +40,6 @@ describe('Dashboard', () => {
       total_stock_value: '500.00',
       recent_transactions: [],
     })
-    getLowStock.mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -49,7 +47,6 @@ describe('Dashboard', () => {
   })
 
   it('renders dashboard stats from API', async () => {
-    getLowStock.mockResolvedValue([{ id: 2, name: 'Mouse' }])
     getDashboardStats.mockResolvedValue({
       total_products: 3,
       low_stock_count: 1,
@@ -78,7 +75,6 @@ describe('Dashboard', () => {
 
   it('shows retry UI when dashboard fetch fails', async () => {
     getDashboardStats.mockRejectedValue(new Error('Server unavailable'))
-    getLowStock.mockRejectedValue(new Error('Server unavailable'))
 
     renderDashboard()
 

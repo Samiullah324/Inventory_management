@@ -1,58 +1,108 @@
-# Task #3: Configure Docker Environment for Backend Application
+# Task #28: Full Application Audit and Bug Fixing
 
 ## Scope
 
-Containerize the Django REST API backend with Docker and Docker Compose, add PostgreSQL for consistent local/dev deployment, externalize configuration via environment variables, add a health check endpoint, and document Docker-based workflows.
+Systematic audit and bug fixes across the Django REST API backend and React/Vite frontend for the inventory management application. Focus on security, functional defects, inventory domain integrity, API contract alignment, and code quality — no new features.
+
+## Repository Topology
+
+- **Type:** Mono-repo with separate `inventory/` + `config/` (Django backend) and `frontend/` (React/Vite).
+- **Backend:** Django 5 + DRF + SimpleJWT + PostgreSQL (Docker) / SQLite (local).
+- **Frontend:** React 19 + Vite + Vitest + React Router.
 
 ## Key Implementation Decisions
 
-- **Database**: PostgreSQL 16 (Alpine) in Docker Compose; SQLite remains the default when `DB_HOST` is unset for non-Docker local development.
-- **Settings**: `config/settings.py` switches to PostgreSQL when `DB_HOST` is provided; all connection values come from env vars via `python-decouple`.
-- **Health check**: `GET /api/health/` (unauthenticated) returns `200` with database status; `503` when the database is unreachable. Used by Docker Compose `healthcheck` for the backend service.
-- **Entrypoint**: `docker/entrypoint.sh` waits for the database (up to 30s), runs migrations, optionally seeds the admin user, then execs the container command.
-- **Development**: Compose mounts `.:/app` and runs `runserver` for hot reload; production image default CMD uses Gunicorn.
-- **Admin bootstrap**: `SETUP_ADMIN` (default `true`) and `DJANGO_ADMIN_*` env vars control first-run admin creation in containers.
-- **Assumption**: Frontend continues to run outside Docker via Vite during local dev; CORS defaults target `localhost:5173`.
+- **Low stock definition:** Unified as `stock_quantity > 0 AND stock_quantity <= minimum_stock_threshold`. Out-of-stock (`0`) is tracked separately via `getStockStatus()` / `'out'`. Applied in `low_stock_queryset()`, dashboard stats, low-stock API, and frontend highlighting.
+- **Transaction atomicity:** `create_inventory_transaction()` and `update_inventory_transaction()` in `services.py` wrap validation, insert/update, and stock replay inside `transaction.atomic()` with `select_for_update()` via `_lock_product()` (accepts `Product` instance or pk). Parameter renamed to `product_instance` / `transaction_instance` for clarity.
+- **Admin-only login:** Custom `AdminTokenObtainPairSerializer` rejects non-staff users at token issuance (401) instead of allowing login then 403 on every API call.
+- **Dashboard polling:** Removed redundant `getLowStock()` call; alert and stat card both use `stats.low_stock_count` from a single endpoint.
+- **Category delete:** `ProtectedError` caught in `CategoryViewSet.destroy()` and returned as 400 validation error.
+- **Admin password:** `setup_admin` requires `DJANGO_ADMIN_PASSWORD` or `--password` in production; falls back to dev default only when `DEBUG=True`.
+- **Assumption:** JWT in `localStorage` and client-only logout remain accepted trade-offs (documented in `auth_views.py` / `frontend/SECURITY.md`); server-side token blacklist is out of scope.
 
 ## Files Changed
 
-| File | Purpose |
-|------|---------|
-| `Dockerfile` | Python 3.12-slim image, system deps, pip install, Gunicorn default CMD |
-| `docker-compose.yml` | `backend` + `db` services, volumes, networking, health checks, log rotation |
-| `docker/entrypoint.sh` | DB wait, migrate, optional admin setup, exec CMD |
-| `.dockerignore` | Exclude venv, SQLite DB, frontend artifacts, secrets from build context |
-| `.env.example` | Documented env template for Docker and app config |
-| `config/settings.py` | PostgreSQL config when `DB_HOST` is set |
-| `inventory/views.py` | `HealthCheckView` |
-| `inventory/urls.py` | `/api/health/` route |
-| `inventory/tests.py` | Health check tests |
-| `requirements.txt` | `psycopg2-binary`, `gunicorn` |
-| `README.md` | Docker setup, commands, troubleshooting |
+| File | Why |
+|------|-----|
+| `frontend/src/pages/Products.jsx` | Fix `fetchProducts()` → `getProducts()` (P0 crash); derive low-stock row styling from `getStockStatus` |
+| `frontend/src/pages/Dashboard.jsx` | Single stats fetch; consistent low-stock alert count |
+| `frontend/src/utils/inventory.js` | Add `isLowStock()`; fix UTC date filter to use local calendar dates |
+| `frontend/src/test/Dashboard.test.jsx` | Remove `getLowStock` mock after dashboard simplification |
+| `frontend/src/test/Products.test.jsx` | Regression test for Products page API load |
+| `frontend/src/test/inventory.test.js` | Cover `isLowStock()` |
+| `inventory/services.py` | `low_stock_queryset()`; atomic create/update transaction helpers |
+| `inventory/serializers.py` | Use atomic service helpers for transaction CRUD |
+| `inventory/models.py` | Add `(product, timestamp)` index on `InventoryTransaction` |
+| `inventory/migrations/0003_*.py` | Database index for transaction ledger lookups |
+| `inventory/views.py` | Aligned low-stock filter; category delete protection; removed leaky exception handlers, no-op mixin, and duplicate imports |
+| `frontend/src/services/api.js` | Remove unused `getLowStock()` after dashboard simplification |
+| `inventory/auth_views.py` | Admin-only JWT login serializer; structured logging for rejected logins |
+| `inventory/admin.py` | `stock_quantity` read-only in Django admin |
+| `inventory/management/commands/setup_admin.py` | Safer password handling for non-dev environments |
+| `inventory/tests.py` | Tests for admin login rejection, out-of-stock exclusion, category delete |
+| `config/urls.py` | Remove duplicate JWT routes (`/api/auth/token/`) |
 
-## Running with Docker
+## Issues Found and Fixed (by category)
+
+### Security
+- Non-admin users could obtain JWT tokens (fixed: admin-only login).
+- Default weak admin password in production path (fixed: env-required password when `DEBUG=False`).
+- Internal exception messages leaked in API 500 responses (fixed: removed broad try/except wrappers).
+- Duplicate JWT auth endpoints removed (reduced attack surface).
+- Django admin allowed direct `stock_quantity` edits bypassing transaction ledger (fixed: read-only).
+
+### Functional Bugs
+- **P0:** `Products.jsx` called undefined `fetchProducts()` — page crashed on load.
+- Low-stock counts/alerts inconsistent between dashboard, API, and Products table (fixed: unified definition).
+- Category delete with associated products returned opaque 500 (fixed: 400 with clear message).
+- Transaction create/update race could leave orphaned rows and stale stock (fixed: atomic locking).
+
+### Performance
+- Dashboard polled two endpoints every 60s (fixed: single `getDashboardStats()` call).
+
+### Code Quality
+- Removed no-op `ErrorHandlingMixin`.
+- Centralized low-stock query logic in `services.py`.
+- Removed duplicate import block in `views.py` (PR review fix).
+- Added docstrings and `_lock_product()` helper for transaction service contracts.
+- Added `(product, timestamp)` DB index for transaction ledger replay performance.
+
+## PR Review Follow-up (same branch)
+
+### Round 1
+- Removed duplicate imports in `inventory/views.py` (kept `connection` and `AllowAny` — used by `HealthCheckView`).
+- Added `_lock_product()` with `Product` instance or pk resolution; docstrings on atomic helpers.
+- Renamed service parameters to `product_instance` / `transaction_instance`; serializer maps `product` explicitly.
+- Added defense-in-depth test: non-admin JWT still rejected by `IsAdminUser` at API layer.
+- Added `fetchProducts` regression test in `Products.test.jsx`.
+- Added `InventoryTransaction` index migration for ledger replay queries.
+
+### Round 2
+- Documented transaction isolation in create/update service docstrings (`select_for_update` blocks concurrent writers).
+- Documented `sync_product_stock()` usage in `perform_destroy`; removed unused serializer import.
+- Removed unused `getLowStock()` from `frontend/src/services/api.js`.
+- Added structured logging for rejected non-admin login attempts in `auth_views.py`.
+- Expanded `low_stock_queryset()` docstring with business rule.
+- Added concurrency test for racing OUT transactions; timezone tests for `getLocalDateString()`.
+- Added maintainer comment on `test_non_admin_user_is_rejected` (401 at login vs 403 at API).
+
+## Testing Performed
 
 ```bash
-cp .env.example .env
-docker compose up --build
-```
-
-- API: http://localhost:8000/api/
-- Health: http://localhost:8000/api/health/
-- Docs: http://localhost:8000/api/docs/
-
-## Tests
-
-```bash
-# Local (SQLite)
+# Backend (33 tests)
 DEBUG=True SECRET_KEY=test-key python3 manage.py test inventory
 
-# In Docker
-docker compose exec backend python manage.py test inventory
+# Frontend (41 tests)
+cd frontend && npm test -- --run
+
+# Frontend build
+cd frontend && npm run build
 ```
 
-## Open Questions / Follow-ups
+## Open Questions / Follow-ups (out of scope)
 
-- Add a `docker-compose.prod.yml` override with Gunicorn and without source volume mounts.
-- Containerize the React frontend as a separate Compose service.
-- CI pipeline job to build the Docker image and run tests inside the container.
+- Server-side JWT refresh token blacklist/revocation.
+- Move tokens from `localStorage` to httpOnly cookies.
+- API pagination for large product/transaction lists.
+- CORS configuration for non-localhost production origins.
+- `docker-compose.prod.yml` and frontend containerization.

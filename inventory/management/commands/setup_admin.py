@@ -1,5 +1,7 @@
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
+from decouple import config
 
 User = get_user_model()
 
@@ -10,12 +12,29 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--username', default='admin', help='Admin username')
         parser.add_argument('--email', default='admin@example.com', help='Admin email')
-        parser.add_argument('--password', default='admin123', help='Admin password')
+        parser.add_argument(
+            '--password',
+            default=None,
+            help='Admin password (falls back to DJANGO_ADMIN_PASSWORD)',
+        )
 
     def handle(self, *args, **options):
         username = options['username']
         email = options['email']
-        password = options['password']
+        password = options['password'] or config('DJANGO_ADMIN_PASSWORD', default=None)
+
+        if not password:
+            if settings.DEBUG:
+                password = 'admin123'
+                self.stdout.write(
+                    self.style.WARNING(
+                        'DJANGO_ADMIN_PASSWORD not set; using default dev password.'
+                    )
+                )
+            else:
+                raise CommandError(
+                    'Admin password is required. Set DJANGO_ADMIN_PASSWORD or pass --password.'
+                )
 
         user, created = User.objects.get_or_create(
             username=username,

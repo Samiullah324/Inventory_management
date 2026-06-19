@@ -3,7 +3,9 @@ import {
   computeDashboardStats,
   filterProducts,
   filterTransactions,
+  getLocalDateString,
   getStockStatus,
+  isLowStock,
 } from '../utils/inventory'
 
 describe('inventory utils', () => {
@@ -47,6 +49,8 @@ describe('inventory utils', () => {
     expect(getStockStatus(products[0])).toBe('out')
     expect(getStockStatus(products[1])).toBe('low')
     expect(getStockStatus(products[2])).toBe('in_stock')
+    expect(isLowStock(products[0])).toBe(false)
+    expect(isLowStock(products[1])).toBe(true)
   })
 
   it('filters products by name, sku, category, and stock status', () => {
@@ -77,5 +81,44 @@ describe('inventory utils', () => {
     expect(
       filterTransactions(transactions, { dateFrom: '2026-06-05', dateTo: '2026-06-15' }),
     ).toHaveLength(1)
+  })
+
+  it('getLocalDateString uses the local calendar date', () => {
+    const timestamp = '2024-01-01T23:30:00Z'
+    const date = new Date(timestamp)
+    const expected = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+
+    expect(getLocalDateString(timestamp)).toBe(expected)
+  })
+
+  it('getLocalDateString differs from UTC date across timezone boundaries', () => {
+    const timestamp = '2024-01-01T23:00:00Z'
+    const date = new Date(timestamp)
+    const localDate = getLocalDateString(timestamp)
+    const utcDate = date.toISOString().slice(0, 10)
+
+    expect(localDate).toBe(
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+    )
+
+    if (date.getDate() !== date.getUTCDate()) {
+      expect(localDate).not.toBe(utcDate)
+    }
+  })
+
+  it('filterTransactions matches local calendar dates for dateFrom', () => {
+    const timestamp = '2024-01-01T23:00:00Z'
+    const localDate = getLocalDateString(timestamp)
+    const transactions = [
+      {
+        id: 1,
+        product: 1,
+        transaction_type: 'IN',
+        timestamp,
+      },
+    ]
+
+    expect(filterTransactions(transactions, { dateFrom: localDate })).toHaveLength(1)
+    expect(filterTransactions(transactions, { dateFrom: '2099-01-01' })).toHaveLength(0)
   })
 })

@@ -1,16 +1,20 @@
 from decimal import Decimal
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
-from django.test import SimpleTestCase, override_settings
+from django.db import close_old_connections
+from django.db.utils import OperationalError
+from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from config.cors import parse_cors_allowed_origins
 from inventory.models import Category, InventoryTransaction, Product
-from inventory.services import StockError, validate_transaction_change
+from inventory.services import StockError, create_inventory_transaction, validate_transaction_change
 
 User = get_user_model()
 
@@ -69,13 +73,23 @@ class AuthenticationTests(APITestCase):
         self.assertIn('details', response.data)
 
     def test_non_admin_user_is_rejected(self):
+        # Admin-only token issuance: non-staff users are rejected at login (401)
+        # rather than receiving a token and failing later on API access (403).
         User.objects.create_user(username='user', password='user123')
         token_response = self.client.post(
             reverse('auth_login'),
             {'username': 'user', 'password': 'user123'},
             format='json',
         )
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token_response.data["access"]}')
+        self.assertEqual(token_response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertIn('error', token_response.data)
+
+    def test_non_admin_with_valid_token_is_rejected_at_api(self):
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        user = User.objects.create_user(username='staffless', password='user123')
+        access = str(RefreshToken.for_user(user).access_token)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
         response = self.client.get('/api/categories/')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn('error', response.data)
@@ -157,6 +171,18 @@ class CategoryAPITests(AuthenticatedAPITestCase):
         self.assertIn('error', response.data)
         self.assertIn('details', response.data)
 
+    def test_delete_category_with_products_returns_validation_error(self):
+        Product.objects.create(
+            name='Widget',
+            sku='WID-001',
+            category=self.category,
+            unit_price=Decimal('10.00'),
+        )
+        response = self.client.delete(f'/api/categories/{self.category.id}/')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        self.assertTrue(Category.objects.filter(pk=self.category.id).exists())
+
 
 class ProductAPITests(AuthenticatedAPITestCase):
     def test_create_product_with_unique_sku(self):
@@ -233,6 +259,19 @@ class LowStockAPITests(AuthenticatedAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['sku'], 'LOW-001')
+
+    def test_low_stock_endpoint_excludes_out_of_stock_products(self):
+        Product.objects.create(
+            name='Empty Item',
+            sku='OUT-001',
+            category=self.category,
+            unit_price=Decimal('10.00'),
+            stock_quantity=0,
+            minimum_stock_threshold=5,
+        )
+        response = self.client.get('/api/products/low-stock/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 0)
 
 
 class DashboardStatsAPITests(AuthenticatedAPITestCase):
@@ -475,6 +514,56 @@ class InventoryTransactionAPITests(AuthenticatedAPITestCase):
                 InventoryTransaction.TransactionType.OUT,
                 6,
             )
+
+
+class TransactionConcurrencyTests(TransactionTestCase):
+    def setUp(self):
+        self.category = Category.objects.create(name='Electronics')
+        self.product = Product.objects.create(
+            name='Keyboard',
+            sku='KEY-CONC',
+            category=self.category,
+            unit_price=Decimal('10.00'),
+        )
+        create_inventory_transaction(
+            self.product,
+            InventoryTransaction.TransactionType.IN,
+            10,
+        )
+
+    @staticmethod
+    def _attempt_out(product_pk, quantity, max_attempts=10):
+        for attempt in range(max_attempts):
+            close_old_connections()
+            product = Product.objects.get(pk=product_pk)
+            try:
+                create_inventory_transaction(
+                    product,
+                    InventoryTransaction.TransactionType.OUT,
+                    quantity,
+                )
+                return 'success'
+            except StockError:
+                return 'stock_error'
+            except OperationalError:
+                if attempt == max_attempts - 1:
+                    raise
+                time.sleep(0.05)
+        return 'stock_error'
+
+    def test_concurrent_out_transactions_cannot_drive_stock_negative(self):
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(self._attempt_out, self.product.pk, 8)
+                for _ in range(2)
+            ]
+            results = [future.result() for future in as_completed(futures)]
+
+        self.product.refresh_from_db()
+        self.assertGreaterEqual(self.product.stock_quantity, 0)
+        self.assertEqual(results.count('success'), 1)
+        self.assertEqual(results.count('stock_error'), 1)
+        self.assertEqual(self.product.stock_quantity, 2)
 
 
 class ExceptionHandlerTests(APITestCase):
