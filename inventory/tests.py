@@ -75,10 +75,8 @@ class AuthenticationTests(APITestCase):
             {'username': 'user', 'password': 'user123'},
             format='json',
         )
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token_response.data["access"]}')
-        response = self.client.get('/api/categories/')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn('error', response.data)
+        self.assertEqual(token_response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertIn('error', token_response.data)
 
     def test_admin_can_login_via_auth_login_endpoint(self):
         response = self.client.post(
@@ -157,6 +155,18 @@ class CategoryAPITests(AuthenticatedAPITestCase):
         self.assertIn('error', response.data)
         self.assertIn('details', response.data)
 
+    def test_delete_category_with_products_returns_validation_error(self):
+        Product.objects.create(
+            name='Widget',
+            sku='WID-001',
+            category=self.category,
+            unit_price=Decimal('10.00'),
+        )
+        response = self.client.delete(f'/api/categories/{self.category.id}/')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        self.assertTrue(Category.objects.filter(pk=self.category.id).exists())
+
 
 class ProductAPITests(AuthenticatedAPITestCase):
     def test_create_product_with_unique_sku(self):
@@ -233,6 +243,19 @@ class LowStockAPITests(AuthenticatedAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['sku'], 'LOW-001')
+
+    def test_low_stock_endpoint_excludes_out_of_stock_products(self):
+        Product.objects.create(
+            name='Empty Item',
+            sku='OUT-001',
+            category=self.category,
+            unit_price=Decimal('10.00'),
+            stock_quantity=0,
+            minimum_stock_threshold=5,
+        )
+        response = self.client.get('/api/products/low-stock/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 0)
 
 
 class DashboardStatsAPITests(AuthenticatedAPITestCase):

@@ -3,7 +3,13 @@ from decimal import Decimal
 from rest_framework import serializers
 
 from .models import Category, InventoryTransaction, Product
-from .services import StockError, sync_product_stock, validate_transaction_change
+from .services import (
+    StockError,
+    create_inventory_transaction,
+    sync_product_stock,
+    update_inventory_transaction,
+    validate_transaction_change,
+)
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -141,14 +147,7 @@ class InventoryTransactionSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        product = validated_data['product']
-        instance = InventoryTransaction.objects.create(**validated_data)
-        sync_product_stock(product)
-        return instance
+        return create_inventory_transaction(**validated_data)
 
     def update(self, instance, validated_data):
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
-        sync_product_stock(instance.product)
-        return instance
+        return update_inventory_transaction(instance, **validated_data)

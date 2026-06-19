@@ -1,12 +1,27 @@
 from rest_framework import status
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+
+
+class AdminTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        if not self.user.is_staff:
+            raise AuthenticationFailed(
+                'Only admin users can access this application.',
+                code='not_admin',
+            )
+        return data
 
 
 class LoginView(TokenObtainPairView):
     """Issue JWT access and refresh tokens for admin users."""
+
+    serializer_class = AdminTokenObtainPairSerializer
 
 
 class RefreshTokenView(TokenRefreshView):

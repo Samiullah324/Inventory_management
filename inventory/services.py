@@ -1,8 +1,18 @@
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 from rest_framework import serializers
 
 from .models import InventoryTransaction, Product
+
+
+def low_stock_queryset(queryset=None):
+    """Products with stock above zero but at or below the minimum threshold."""
+    qs = queryset if queryset is not None else Product.objects.all()
+    return qs.filter(
+        stock_quantity__gt=0,
+        stock_quantity__lte=F('minimum_stock_threshold'),
+    )
 
 
 class StockError(serializers.ValidationError):
@@ -46,6 +56,41 @@ def validate_transaction_deletion(inventory_transaction):
         exclude_transaction_id=inventory_transaction.pk,
     )
     _replay_transactions(inventory_transaction.product, transactions)
+
+
+@transaction.atomic
+def create_inventory_transaction(product, transaction_type, quantity, notes=''):
+    product = Product.objects.select_for_update().get(pk=product.pk)
+    validate_transaction_change(product, transaction_type, quantity)
+    instance = InventoryTransaction.objects.create(
+        product=product,
+        transaction_type=transaction_type,
+        quantity=quantity,
+        notes=notes,
+    )
+    transactions = _ordered_transactions(product)
+    product.stock_quantity = _replay_transactions(product, transactions)
+    product.save(update_fields=['stock_quantity', 'updated_at'])
+    return instance
+
+
+@transaction.atomic
+def update_inventory_transaction(instance, **updates):
+    product = Product.objects.select_for_update().get(pk=instance.product.pk)
+    for attr, value in updates.items():
+        setattr(instance, attr, value)
+    validate_transaction_change(
+        product,
+        instance.transaction_type,
+        instance.quantity,
+        exclude_transaction_id=instance.pk,
+        timestamp=instance.timestamp,
+    )
+    instance.save()
+    transactions = _ordered_transactions(product)
+    product.stock_quantity = _replay_transactions(product, transactions)
+    product.save(update_fields=['stock_quantity', 'updated_at'])
+    return instance
 
 
 @transaction.atomic
