@@ -147,7 +147,8 @@ class InventoryTransactionSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        return create_inventory_transaction(**validated_data)
+        product_instance = validated_data.pop('product')
+        return create_inventory_transaction(product_instance, **validated_data)
 
     def update(self, instance, validated_data):
         return update_inventory_transaction(instance, **validated_data)

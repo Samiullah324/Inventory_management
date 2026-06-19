@@ -42,12 +42,37 @@ def _replay_transactions(product, transactions):
 
 
 def _ordered_transactions(product, exclude_transaction_id=None):
+    # Loads all transactions for the product ordered by timestamp. Products with
+    # very large ledgers may incur extra query cost; see InventoryTransaction
+    # Meta.indexes for the (product, timestamp) lookup index.
     transactions = InventoryTransaction.objects.filter(product=product).order_by(
         'timestamp', 'id'
     )
     if exclude_transaction_id is not None:
         transactions = transactions.exclude(pk=exclude_transaction_id)
     return list(transactions)
+
+
+def _lock_product(product):
+    """Resolve and row-lock a Product for update.
+
+    Args:
+        product: A Product instance or integer primary key.
+
+    Returns:
+        Product: Locked Product instance.
+
+    Raises:
+        TypeError: If product is neither a Product nor an integer pk.
+        Product.DoesNotExist: If no matching product exists.
+    """
+    if isinstance(product, Product):
+        pk = product.pk
+    elif isinstance(product, int):
+        pk = product
+    else:
+        raise TypeError('product must be a Product instance or integer primary key')
+    return Product.objects.select_for_update().get(pk=pk)
 
 
 def validate_transaction_deletion(inventory_transaction):
@@ -59,8 +84,22 @@ def validate_transaction_deletion(inventory_transaction):
 
 
 @transaction.atomic
-def create_inventory_transaction(product, transaction_type, quantity, notes=''):
-    product = Product.objects.select_for_update().get(pk=product.pk)
+def create_inventory_transaction(product_instance, transaction_type, quantity, notes=''):
+    """Create a transaction and replay stock under a single atomic lock.
+
+    Runs inside ``transaction.atomic()`` and acquires ``select_for_update()`` on
+    the product row before validation, insert, and stock replay.
+
+    Args:
+        product_instance: Product model instance (as provided by DRF FK validation).
+        transaction_type: One of InventoryTransaction.TransactionType values.
+        quantity: Positive integer quantity for the transaction.
+        notes: Optional transaction notes.
+
+    Returns:
+        InventoryTransaction: The persisted transaction row.
+    """
+    product = _lock_product(product_instance)
     validate_transaction_change(product, transaction_type, quantity)
     instance = InventoryTransaction.objects.create(
         product=product,
@@ -68,6 +107,7 @@ def create_inventory_transaction(product, transaction_type, quantity, notes=''):
         quantity=quantity,
         notes=notes,
     )
+    # Replays the full ledger; cost scales with transaction count for this product.
     transactions = _ordered_transactions(product)
     product.stock_quantity = _replay_transactions(product, transactions)
     product.save(update_fields=['stock_quantity', 'updated_at'])
@@ -75,27 +115,40 @@ def create_inventory_transaction(product, transaction_type, quantity, notes=''):
 
 
 @transaction.atomic
-def update_inventory_transaction(instance, **updates):
-    product = Product.objects.select_for_update().get(pk=instance.product.pk)
+def update_inventory_transaction(transaction_instance, **updates):
+    """Update a transaction and replay stock under a single atomic lock.
+
+    Runs inside ``transaction.atomic()`` and acquires ``select_for_update()`` on
+    the related product row before validation, save, and stock replay.
+
+    Args:
+        transaction_instance: Existing InventoryTransaction model instance.
+        **updates: Field values to apply before validation and save.
+
+    Returns:
+        InventoryTransaction: The updated transaction row.
+    """
+    product = _lock_product(transaction_instance.product)
     for attr, value in updates.items():
-        setattr(instance, attr, value)
+        setattr(transaction_instance, attr, value)
     validate_transaction_change(
         product,
-        instance.transaction_type,
-        instance.quantity,
-        exclude_transaction_id=instance.pk,
-        timestamp=instance.timestamp,
+        transaction_instance.transaction_type,
+        transaction_instance.quantity,
+        exclude_transaction_id=transaction_instance.pk,
+        timestamp=transaction_instance.timestamp,
     )
-    instance.save()
+    transaction_instance.save()
+    # Replays the full ledger; cost scales with transaction count for this product.
     transactions = _ordered_transactions(product)
     product.stock_quantity = _replay_transactions(product, transactions)
     product.save(update_fields=['stock_quantity', 'updated_at'])
-    return instance
+    return transaction_instance
 
 
 @transaction.atomic
 def sync_product_stock(product, exclude_transaction_id=None):
-    product = Product.objects.select_for_update().get(pk=product.pk)
+    product = _lock_product(product)
     transactions = _ordered_transactions(product, exclude_transaction_id)
     product.stock_quantity = _replay_transactions(product, transactions)
     product.save(update_fields=['stock_quantity', 'updated_at'])

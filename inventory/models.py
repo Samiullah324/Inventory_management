@@ -62,6 +62,9 @@ class InventoryTransaction(models.Model):
 
     class Meta:
         ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['product', 'timestamp'], name='inventory_txn_product_ts'),
+        ]
 
     def __str__(self):
         return f'{self.transaction_type} {self.quantity} - {self.product.sku}'

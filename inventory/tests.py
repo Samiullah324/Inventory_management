@@ -78,6 +78,16 @@ class AuthenticationTests(APITestCase):
         self.assertEqual(token_response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertIn('error', token_response.data)
 
+    def test_non_admin_with_valid_token_is_rejected_at_api(self):
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        user = User.objects.create_user(username='staffless', password='user123')
+        access = str(RefreshToken.for_user(user).access_token)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+        response = self.client.get('/api/categories/')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn('error', response.data)
+
     def test_admin_can_login_via_auth_login_endpoint(self):
         response = self.client.post(
             reverse('auth_login'),

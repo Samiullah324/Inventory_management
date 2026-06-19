@@ -13,7 +13,7 @@ Systematic audit and bug fixes across the Django REST API backend and React/Vite
 ## Key Implementation Decisions
 
 - **Low stock definition:** Unified as `stock_quantity > 0 AND stock_quantity <= minimum_stock_threshold`. Out-of-stock (`0`) is tracked separately via `getStockStatus()` / `'out'`. Applied in `low_stock_queryset()`, dashboard stats, low-stock API, and frontend highlighting.
-- **Transaction atomicity:** `create_inventory_transaction()` and `update_inventory_transaction()` in `services.py` wrap validation, insert/update, and stock replay inside `transaction.atomic()` with `select_for_update()` to prevent concurrent OUT races.
+- **Transaction atomicity:** `create_inventory_transaction()` and `update_inventory_transaction()` in `services.py` wrap validation, insert/update, and stock replay inside `transaction.atomic()` with `select_for_update()` via `_lock_product()` (accepts `Product` instance or pk). Parameter renamed to `product_instance` / `transaction_instance` for clarity.
 - **Admin-only login:** Custom `AdminTokenObtainPairSerializer` rejects non-staff users at token issuance (401) instead of allowing login then 403 on every API call.
 - **Dashboard polling:** Removed redundant `getLowStock()` call; alert and stat card both use `stats.low_stock_count` from a single endpoint.
 - **Category delete:** `ProtectedError` caught in `CategoryViewSet.destroy()` and returned as 400 validation error.
@@ -32,7 +32,9 @@ Systematic audit and bug fixes across the Django REST API backend and React/Vite
 | `frontend/src/test/inventory.test.js` | Cover `isLowStock()` |
 | `inventory/services.py` | `low_stock_queryset()`; atomic create/update transaction helpers |
 | `inventory/serializers.py` | Use atomic service helpers for transaction CRUD |
-| `inventory/views.py` | Aligned low-stock filter; category delete protection; removed leaky exception handlers and no-op mixin |
+| `inventory/models.py` | Add `(product, timestamp)` index on `InventoryTransaction` |
+| `inventory/migrations/0003_*.py` | Database index for transaction ledger lookups |
+| `inventory/views.py` | Aligned low-stock filter; category delete protection; removed leaky exception handlers, no-op mixin, and duplicate imports |
 | `inventory/auth_views.py` | Admin-only JWT login serializer |
 | `inventory/admin.py` | `stock_quantity` read-only in Django admin |
 | `inventory/management/commands/setup_admin.py` | Safer password handling for non-dev environments |
@@ -60,14 +62,26 @@ Systematic audit and bug fixes across the Django REST API backend and React/Vite
 ### Code Quality
 - Removed no-op `ErrorHandlingMixin`.
 - Centralized low-stock query logic in `services.py`.
+- Removed duplicate import block in `views.py` (PR review fix).
+- Added docstrings and `_lock_product()` helper for transaction service contracts.
+- Added `(product, timestamp)` DB index for transaction ledger replay performance.
+
+## PR Review Follow-up (same branch)
+
+- Removed duplicate imports in `inventory/views.py` (kept `connection` and `AllowAny` — used by `HealthCheckView`).
+- Added `_lock_product()` with `Product` instance or pk resolution; docstrings on atomic helpers.
+- Renamed service parameters to `product_instance` / `transaction_instance`; serializer maps `product` explicitly.
+- Added defense-in-depth test: non-admin JWT still rejected by `IsAdminUser` at API layer.
+- Added `fetchProducts` regression test in `Products.test.jsx`.
+- Added `InventoryTransaction` index migration for ledger replay queries.
 
 ## Testing Performed
 
 ```bash
-# Backend (31 tests)
+# Backend (32 tests)
 DEBUG=True SECRET_KEY=test-key python3 manage.py test inventory
 
-# Frontend (37 tests)
+# Frontend (38 tests)
 cd frontend && npm test -- --run
 
 # Frontend build

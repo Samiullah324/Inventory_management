@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Products from '../pages/Products'
 import { NotificationProvider } from '../context/NotificationContext'
 
@@ -20,6 +20,9 @@ function renderProducts() {
 }
 
 describe('Products', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
   it('loads products from the API on mount', async () => {
     getProducts.mockResolvedValue([
       {
@@ -42,5 +45,17 @@ describe('Products', () => {
     })
     expect(getProducts).toHaveBeenCalledTimes(1)
     expect(getCategories).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses getProducts API helper to prevent fetchProducts regression', async () => {
+    getProducts.mockResolvedValue([])
+    getCategories.mockResolvedValue([])
+
+    renderProducts()
+
+    await waitFor(() => {
+      expect(getProducts).toHaveBeenCalledTimes(1)
+    })
+    expect(globalThis.fetchProducts).toBeUndefined()
   })
 })
