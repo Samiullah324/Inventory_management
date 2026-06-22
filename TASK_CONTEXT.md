@@ -1,108 +1,50 @@
-# Task #28: Full Application Audit and Bug Fixing
+# Task #5: Update README Documentation
 
 ## Scope
 
-Systematic audit and bug fixes across the Django REST API backend and React/Vite frontend for the inventory management application. Focus on security, functional defects, inventory domain integrity, API contract alignment, and code quality — no new features.
+Documentation-only task: update the root `README.md` to accurately reflect the Inventory Management System codebase (Django REST API + React/Vite frontend). No source code, configuration, or dependency changes.
 
 ## Repository Topology
 
-- **Type:** Mono-repo with separate `inventory/` + `config/` (Django backend) and `frontend/` (React/Vite).
-- **Backend:** Django 5 + DRF + SimpleJWT + PostgreSQL (Docker) / SQLite (local).
-- **Frontend:** React 19 + Vite + Vitest + React Router.
+- **Type:** Mono-repo with `config/` + `inventory/` (Django backend) and `frontend/` (React/Vite SPA).
+- **Backend:** Django 5 + DRF + SimpleJWT + PostgreSQL (Docker) / SQLite (local without `DB_HOST`).
+- **Frontend:** React 19 + Vite 8 + React Router 7 + Vitest.
 
 ## Key Implementation Decisions
 
-- **Low stock definition:** Unified as `stock_quantity > 0 AND stock_quantity <= minimum_stock_threshold`. Out-of-stock (`0`) is tracked separately via `getStockStatus()` / `'out'`. Applied in `low_stock_queryset()`, dashboard stats, low-stock API, and frontend highlighting.
-- **Transaction atomicity:** `create_inventory_transaction()` and `update_inventory_transaction()` in `services.py` wrap validation, insert/update, and stock replay inside `transaction.atomic()` with `select_for_update()` via `_lock_product()` (accepts `Product` instance or pk). Parameter renamed to `product_instance` / `transaction_instance` for clarity.
-- **Admin-only login:** Custom `AdminTokenObtainPairSerializer` rejects non-staff users at token issuance (401) instead of allowing login then 403 on every API call.
-- **Dashboard polling:** Removed redundant `getLowStock()` call; alert and stat card both use `stats.low_stock_count` from a single endpoint.
-- **Category delete:** `ProtectedError` caught in `CategoryViewSet.destroy()` and returned as 400 validation error.
-- **Admin password:** `setup_admin` requires `DJANGO_ADMIN_PASSWORD` or `--password` in production; falls back to dev default only when `DEBUG=True`.
-- **Assumption:** JWT in `localStorage` and client-only logout remain accepted trade-offs (documented in `auth_views.py` / `frontend/SECURITY.md`); server-side token blacklist is out of scope.
+- **Comprehensive README structure:** Added all sections required by the task spec (description, stack, structure, prerequisites, installation, configuration, usage, features, API docs, contributing, security notes).
+- **Dual setup paths:** Documented Docker Compose (recommended backend path) and local development (SQLite backend + Vite dev server) based on actual `docker-compose.yml`, `config/settings.py`, and `frontend/vite.config.js`.
+- **API accuracy:** Endpoints derived from `config/urls.py`, `inventory/urls.py`, and DRF router registrations. Documented admin-only JWT requirement and transaction types from `inventory/models.py`.
+- **No license section:** Repository has no `LICENSE` file; omitted rather than inventing license text.
+- **Verified commands:** All documented test and setup commands were run locally before finalizing.
 
 ## Files Changed
 
 | File | Why |
 |------|-----|
-| `frontend/src/pages/Products.jsx` | Fix `fetchProducts()` → `getProducts()` (P0 crash); derive low-stock row styling from `getStockStatus` |
-| `frontend/src/pages/Dashboard.jsx` | Single stats fetch; consistent low-stock alert count |
-| `frontend/src/utils/inventory.js` | Add `isLowStock()`; fix UTC date filter to use local calendar dates |
-| `frontend/src/test/Dashboard.test.jsx` | Remove `getLowStock` mock after dashboard simplification |
-| `frontend/src/test/Products.test.jsx` | Regression test for Products page API load |
-| `frontend/src/test/inventory.test.js` | Cover `isLowStock()` |
-| `inventory/services.py` | `low_stock_queryset()`; atomic create/update transaction helpers |
-| `inventory/serializers.py` | Use atomic service helpers for transaction CRUD |
-| `inventory/models.py` | Add `(product, timestamp)` index on `InventoryTransaction` |
-| `inventory/migrations/0003_*.py` | Database index for transaction ledger lookups |
-| `inventory/views.py` | Aligned low-stock filter; category delete protection; removed leaky exception handlers, no-op mixin, and duplicate imports |
-| `frontend/src/services/api.js` | Remove unused `getLowStock()` after dashboard simplification |
-| `inventory/auth_views.py` | Admin-only JWT login serializer; structured logging for rejected logins |
-| `inventory/admin.py` | `stock_quantity` read-only in Django admin |
-| `inventory/management/commands/setup_admin.py` | Safer password handling for non-dev environments |
-| `inventory/tests.py` | Tests for admin login rejection, out-of-stock exclusion, category delete |
-| `config/urls.py` | Remove duplicate JWT routes (`/api/auth/token/`) |
-
-## Issues Found and Fixed (by category)
-
-### Security
-- Non-admin users could obtain JWT tokens (fixed: admin-only login).
-- Default weak admin password in production path (fixed: env-required password when `DEBUG=False`).
-- Internal exception messages leaked in API 500 responses (fixed: removed broad try/except wrappers).
-- Duplicate JWT auth endpoints removed (reduced attack surface).
-- Django admin allowed direct `stock_quantity` edits bypassing transaction ledger (fixed: read-only).
-
-### Functional Bugs
-- **P0:** `Products.jsx` called undefined `fetchProducts()` — page crashed on load.
-- Low-stock counts/alerts inconsistent between dashboard, API, and Products table (fixed: unified definition).
-- Category delete with associated products returned opaque 500 (fixed: 400 with clear message).
-- Transaction create/update race could leave orphaned rows and stale stock (fixed: atomic locking).
-
-### Performance
-- Dashboard polled two endpoints every 60s (fixed: single `getDashboardStats()` call).
-
-### Code Quality
-- Removed no-op `ErrorHandlingMixin`.
-- Centralized low-stock query logic in `services.py`.
-- Removed duplicate import block in `views.py` (PR review fix).
-- Added docstrings and `_lock_product()` helper for transaction service contracts.
-- Added `(product, timestamp)` DB index for transaction ledger replay performance.
-
-## PR Review Follow-up (same branch)
-
-### Round 1
-- Removed duplicate imports in `inventory/views.py` (kept `connection` and `AllowAny` — used by `HealthCheckView`).
-- Added `_lock_product()` with `Product` instance or pk resolution; docstrings on atomic helpers.
-- Renamed service parameters to `product_instance` / `transaction_instance`; serializer maps `product` explicitly.
-- Added defense-in-depth test: non-admin JWT still rejected by `IsAdminUser` at API layer.
-- Added `fetchProducts` regression test in `Products.test.jsx`.
-- Added `InventoryTransaction` index migration for ledger replay queries.
-
-### Round 2
-- Documented transaction isolation in create/update service docstrings (`select_for_update` blocks concurrent writers).
-- Documented `sync_product_stock()` usage in `perform_destroy`; removed unused serializer import.
-- Removed unused `getLowStock()` from `frontend/src/services/api.js`.
-- Added structured logging for rejected non-admin login attempts in `auth_views.py`.
-- Expanded `low_stock_queryset()` docstring with business rule.
-- Added concurrency test for racing OUT transactions; timezone tests for `getLocalDateString()`.
-- Added maintainer comment on `test_non_admin_user_is_rejected` (401 at login vs 403 at API).
+| `README.md` | Replaced minimal README with comprehensive, codebase-accurate documentation |
+| `TASK_CONTEXT.md` | Record task #5 scope, decisions, and verification for branch handoff |
 
 ## Testing Performed
 
 ```bash
-# Backend (33 tests)
+# Backend (33 tests) — PASS
+pip install -r requirements.txt
 DEBUG=True SECRET_KEY=test-key python3 manage.py test inventory
 
-# Frontend (41 tests)
-cd frontend && npm test -- --run
+# Backend setup commands — PASS
+DEBUG=True SECRET_KEY=test-key python3 manage.py migrate --noinput
+DEBUG=True SECRET_KEY=test-key python3 manage.py setup_admin --username admin --password admin123
 
-# Frontend build
+# Frontend (41 tests) — PASS
+cd frontend && npm install && npm test
+
+# Frontend build — PASS
 cd frontend && npm run build
 ```
 
 ## Open Questions / Follow-ups (out of scope)
 
-- Server-side JWT refresh token blacklist/revocation.
-- Move tokens from `localStorage` to httpOnly cookies.
-- API pagination for large product/transaction lists.
-- CORS configuration for non-localhost production origins.
-- `docker-compose.prod.yml` and frontend containerization.
+- Add a `LICENSE` file if the project owner wants explicit licensing terms.
+- Frontend containerization / `docker-compose.prod.yml` (not present in repo).
+- Server-side JWT revocation and httpOnly cookie auth (documented as follow-ups in `frontend/SECURITY.md`).
