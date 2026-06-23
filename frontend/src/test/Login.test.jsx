@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { AuthProvider } from '../context/AuthContext'
 import { NotificationProvider } from '../context/NotificationContext'
+import { ThemeProvider } from '../context/ThemeContext'
 import Login from '../pages/Login'
 
 vi.mock('../utils/auth', () => ({
@@ -22,14 +23,16 @@ vi.mock('../services/api', () => ({
   refreshToken: vi.fn(),
 }))
 
-function renderLogin() {
+function renderLogin(initialEntries = ['/login']) {
   return render(
-    <MemoryRouter>
-      <NotificationProvider>
-        <AuthProvider>
-          <Login />
-        </AuthProvider>
-      </NotificationProvider>
+    <MemoryRouter initialEntries={initialEntries}>
+      <ThemeProvider>
+        <NotificationProvider>
+          <AuthProvider>
+            <Login />
+          </AuthProvider>
+        </NotificationProvider>
+      </ThemeProvider>
     </MemoryRouter>,
   )
 }
@@ -46,15 +49,7 @@ describe('Login page', () => {
   })
 
   it('shows session expired message when redirected after auth failure', () => {
-    render(
-      <MemoryRouter initialEntries={[{ pathname: '/login', state: { sessionExpired: true } }]}>
-        <NotificationProvider>
-          <AuthProvider>
-            <Login />
-          </AuthProvider>
-        </NotificationProvider>
-      </MemoryRouter>,
-    )
+    renderLogin([{ pathname: '/login', state: { sessionExpired: true } }])
 
     expect(screen.getByText('Your session has expired. Please sign in again.')).toBeInTheDocument()
   })
