@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import ThemeToggle from '../components/ThemeToggle'
 import { extractErrorMessage } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useNotification } from '../context/NotificationContext'
@@ -41,6 +42,9 @@ export default function Login() {
 
   return (
     <div className="login-page">
+      <div className="login-page__theme">
+        <ThemeToggle />
+      </div>
       <form className="login-card" onSubmit={handleSubmit}>
         <h1>Admin Login</h1>
         <p className="login-card__subtitle">Sign in to manage inventory</p>
